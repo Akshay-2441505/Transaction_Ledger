@@ -1658,10 +1658,126 @@ async function fetchAccountData() {
     console.error("Failed to fetch balance:", err);
   }
 
-  // 2. Fetch transactions for history & overview
+  // 2. Fetch independent, unfiltered overview metrics & activity
+  await fetchOverviewData();
+
+  // 3. Fetch filtered transaction history for the transactions tab
   await fetchTransactionHistory();
 }
 
+// -------------------------------------------------------------
+// Financial Overview: ALWAYS UNFILTERED across the entire ledger
+// -------------------------------------------------------------
+async function fetchOverviewData() {
+  if (!state.activeAccountId) {
+    elements.metricCreditsTotal.textContent = "₹0.00";
+    elements.metricDebitsTotal.textContent = "₹0.00";
+    elements.metricTotalRecords.textContent = "0";
+    renderOverviewRecentActivity([]);
+    renderActivityChart(0, 0);
+    return;
+  }
+
+  try {
+    // Overview always retrieves pure unfiltered transactions
+    const res = await fetch(`/accounts/${state.activeAccountId}/transactions?page=1&limit=100`);
+    if (!res.ok) {
+      if (res.status === 404) {
+        elements.metricCreditsTotal.textContent = "₹0.00";
+        elements.metricDebitsTotal.textContent = "₹0.00";
+        elements.metricTotalRecords.textContent = "0";
+        renderOverviewRecentActivity([]);
+        renderActivityChart(0, 0);
+      }
+      return;
+    }
+
+    const data = await res.json();
+    let allItems = data.items || [];
+    const totalRecords = data.pagination?.total_records || 0;
+    const totalPages = data.pagination?.total_pages || 1;
+
+    // If more than 100 transactions, paginate to aggregate true inflow/outflow totals
+    if (totalPages > 1) {
+      for (let p = 2; p <= totalPages; p++) {
+        try {
+          const pageRes = await fetch(`/accounts/${state.activeAccountId}/transactions?page=${p}&limit=100`);
+          if (pageRes.ok) {
+            const pageData = await pageRes.json();
+            if (pageData.items) {
+              allItems = allItems.concat(pageData.items);
+            }
+          }
+        } catch {
+          break;
+        }
+      }
+    }
+
+    let totalCredits = 0;
+    let totalDebits = 0;
+    allItems.forEach((item) => {
+      const val = parseFloat(item.amount);
+      if (!isNaN(val)) {
+        if (item.type === "credit") totalCredits += val;
+        if (item.type === "debit") totalDebits += val;
+      }
+    });
+
+    // Populate Overview Cards
+    elements.metricCreditsTotal.textContent = formatINR(totalCredits);
+    elements.metricDebitsTotal.textContent = formatINR(totalDebits);
+    elements.metricTotalRecords.textContent = totalRecords;
+
+    // Render Recent Transactions panel on Overview (latest 5 regardless of filters)
+    renderOverviewRecentActivity(allItems.slice(0, 5));
+    renderActivityChart(totalCredits, totalDebits);
+  } catch (err) {
+    console.error("Failed to fetch overview data:", err);
+  }
+}
+
+function renderOverviewRecentActivity(items) {
+  elements.recentActivityTableBody.innerHTML = "";
+
+  if (!items || items.length === 0) {
+    elements.recentActivityEmpty.style.display = "flex";
+    return;
+  }
+
+  elements.recentActivityEmpty.style.display = "none";
+
+  items.forEach((item) => {
+    const row = document.createElement("tr");
+
+    const typeTd = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = `tx-badge ${item.type}`;
+    badge.textContent = item.type;
+    typeTd.appendChild(badge);
+    row.appendChild(typeTd);
+
+    const amountTd = document.createElement("td");
+    amountTd.className = `tx-amount tx-${item.type}`;
+    amountTd.textContent = `${item.type === "credit" ? "+" : "-"}${formatINR(item.amount)}`;
+    row.appendChild(amountTd);
+
+    const descTd = document.createElement("td");
+    descTd.textContent = item.description;
+    row.appendChild(descTd);
+
+    const timeTd = document.createElement("td");
+    timeTd.className = "tx-timestamp";
+    timeTd.textContent = formatDate(item.created_at);
+    row.appendChild(timeTd);
+
+    elements.recentActivityTableBody.appendChild(row);
+  });
+}
+
+// -------------------------------------------------------------
+// Transaction History: Filtered and Paginated independently
+// -------------------------------------------------------------
 async function fetchTransactionHistory() {
   if (!state.activeAccountId) {
     renderHistoryTable([], { total_records: 0, total_pages: 0, page: 1 });
@@ -1686,8 +1802,8 @@ async function fetchTransactionHistory() {
     state.totalRecords = data.pagination.total_records;
     state.totalPages = data.pagination.total_pages;
 
+    // Only render history table; does NOT affect overview metrics
     renderHistoryTable(data.items, data.pagination);
-    renderOverviewActivity(data.items);
   } catch (err) {
     console.error("Failed to fetch transaction history:", err);
   }
@@ -1741,68 +1857,11 @@ function renderHistoryTable(items, pagination) {
     });
   }
 
-  // Update pagination controls
-  elements.metricTotalRecords.textContent = pagination.total_records;
+  // Update pagination controls in History view (does NOT touch metricTotalRecords)
   elements.paginationCountInfo.textContent = `Showing ${items.length} of ${pagination.total_records} transactions`;
   elements.pageIndicator.textContent = `Page ${pagination.page} of ${Math.max(1, pagination.total_pages)}`;
   elements.btnPrevPage.disabled = pagination.page <= 1;
   elements.btnNextPage.disabled = pagination.page >= pagination.total_pages;
-}
-
-function renderOverviewActivity(items) {
-  elements.recentActivityTableBody.innerHTML = "";
-
-  if (!items || items.length === 0) {
-    elements.recentActivityEmpty.style.display = "flex";
-    elements.metricCreditsTotal.textContent = "₹0.00";
-    elements.metricDebitsTotal.textContent = "₹0.00";
-    renderActivityChart(0, 0);
-    return;
-  }
-
-  elements.recentActivityEmpty.style.display = "none";
-
-  // Calculate actual aggregates from current history
-  let totalCredits = 0;
-  let totalDebits = 0;
-
-  items.slice(0, 5).forEach((item) => {
-    const row = document.createElement("tr");
-
-    const typeTd = document.createElement("td");
-    const badge = document.createElement("span");
-    badge.className = `tx-badge ${item.type}`;
-    badge.textContent = item.type;
-    typeTd.appendChild(badge);
-    row.appendChild(typeTd);
-
-    const amountTd = document.createElement("td");
-    amountTd.className = `tx-amount tx-${item.type}`;
-    amountTd.textContent = `${item.type === "credit" ? "+" : "-"}${formatINR(item.amount)}`;
-    row.appendChild(amountTd);
-
-    const descTd = document.createElement("td");
-    descTd.textContent = item.description;
-    row.appendChild(descTd);
-
-    const timeTd = document.createElement("td");
-    timeTd.className = "tx-timestamp";
-    timeTd.textContent = formatDate(item.created_at);
-    row.appendChild(timeTd);
-
-    elements.recentActivityTableBody.appendChild(row);
-  });
-
-  items.forEach((item) => {
-    const val = parseFloat(item.amount);
-    if (item.type === "credit") totalCredits += val;
-    if (item.type === "debit") totalDebits += val;
-  });
-
-  elements.metricCreditsTotal.textContent = formatINR(totalCredits);
-  elements.metricDebitsTotal.textContent = formatINR(totalDebits);
-
-  renderActivityChart(totalCredits, totalDebits);
 }
 
 function renderActivityChart(credits, debits) {

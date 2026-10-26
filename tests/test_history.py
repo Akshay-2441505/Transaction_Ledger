@@ -1,3 +1,4 @@
+import time
 import uuid
 import pytest
 
@@ -15,6 +16,7 @@ def test_history_all_types_and_ordering(client, created_account):
             "reference_id": "TX-01",
         },
     )
+    time.sleep(0.01)
     client.post(
         f"/accounts/{account_id}/transactions",
         json={
@@ -24,6 +26,7 @@ def test_history_all_types_and_ordering(client, created_account):
             "reference_id": "TX-02",
         },
     )
+    time.sleep(0.01)
     client.post(
         f"/accounts/{account_id}/transactions",
         json={
