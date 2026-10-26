@@ -1,34 +1,169 @@
-# Key Assumptions and Design Decisions
+# Assumptions and Engineering Decisions
 
-**Project:** Transaction Ledger API  
-**Status:** Baseline Documentation  
-**Related Documents:** [`PRD.md`](./PRD.md), [`DESIGN.md`](./DESIGN.md), [`TECH_STACK.md`](./TECH_STACK.md)
+**Project:** Transaction Ledger API & Financial Dashboard  
+**Status:** Final Implementation Documentation  
+**Related Documents:** [`PRD.md`](./PRD.md), [`DESIGN.md`](./DESIGN.md), [`TECH_STACK.md`](./TECH_STACK.md), [`API_DOCUMENTATION.md`](./API_DOCUMENTATION.md)
 
 ---
 
-## 1. Currency & Precision
-- **Currency:** The ledger strictly models single-currency transactions in Indian Rupees (INR, ₹). Multi-currency conversions and foreign exchange are out of scope.
-- **Monetary Precision:** All amounts and balances are stored as PostgreSQL `NUMERIC(18, 2)` and manipulated in Python using `decimal.Decimal` with two fractional digits. Floating-point arithmetic (`float`) is strictly prohibited.
-- **API Wire Format:** Monetary values are serialized as decimal strings (e.g. `"1000.00"`) in JSON payloads to prevent precision loss in client environments that parse JSON numbers as IEEE-754 double precision floats.
+## 1. Overview & Classification Framework
 
-## 2. Invariants & Consistency
-- **Balance Invariant:** For every account, the stored balance strictly equals `sum(successful credits) - sum(successful debits)`.
-- **Negative Balance Prevention:** An account balance must never fall below `0.00`. This is guarded by:
-  1. Service-level checks under exclusive pessimistic row lock (`SELECT ... FOR UPDATE`).
-  2. PostgreSQL database check constraint `CHECK (balance >= 0)`.
-- **Atomic Operations:** Credit or debit writes and the resulting account balance update occur within the exact same database transaction.
-- **Failure Non-Persistence:** Rejected transactions (e.g., overdraft attempts or invalid inputs) are never committed to the `transactions` table. Failed operations roll back completely.
+This document records the operational assumptions, engineering trade-offs, and deliberate design decisions made during the architecture and implementation of the Transaction Ledger API.
 
-## 3. Idempotency & Reference Uniqueness
-- **Scope of Uniqueness:** The `reference_id` is unique per account (`UNIQUE (account_id, reference_id)`), not globally. A client may reuse the same reference ID across different accounts.
-- **Conflict Handling:** Reusing a reference ID for the same account results in `409 DUPLICATE_REFERENCE`. The API does not silently replay previous transactions.
-- **Sanitization:** `reference_id` strings are whitespace-trimmed and compared case-sensitively.
+To provide clear visibility for technical reviewers, every item is categorized under one of four explicit classifications:
+1. **[Assignment Interpretation]**: An assumption adopted where the assignment specification was silent or flexible.
+2. **[Engineering Decision]**: A deliberate technical choice selected to guarantee data integrity, performance, or correctness.
+3. **[Explicitly Out of Scope]**: Features or capabilities intentionally excluded based on project boundaries.
+4. **[Known Limitation]**: Constraints inherent to the current architectural stage or environment.
 
-## 4. Immutability
-- **Append-Only Ledger:** There are no `PUT`, `PATCH`, or `DELETE` endpoints for ledger records. Once committed, a transaction record is immutable.
-- **Account Balance Field:** Account creation (`POST /accounts`) strictly forbids client-supplied `balance`. Initial balance is always `0.00`.
+---
 
-## 5. Security & Scope Limitations
-- **Authentication & Authorization:** As explicitly scoped in the recruitment assessment specification, end-user authentication (JWT, OAuth) and account-owner authorization are excluded from the API contract. All endpoints are open for evaluation.
-- **Data Protection:** Database credentials are never logged or exposed. Application error handlers sanitize exceptions and never return raw SQL, stack traces, or environment variables.
-- **Input Sanitization:** Account names are trimmed and validated to contain non-whitespace text. Query limits are bounded between 1 and 100.
+## A. Assignment Scope
+
+### 1. Simulated Ledger Model `[Engineering Decision]`
+- **Decision:** The application functions strictly as an internal double-entry-style balance ledger simulating credit and debit operations.
+- **Rationale:** The system does not interact with external banking rails, UPI networks, card networks, or payment processors (e.g. Stripe, Razorpay). Credits and debits are executed as instantaneous, deterministic state transitions within the application's PostgreSQL database.
+
+### 2. Core Capabilities Implemented `[Engineering Decision]`
+- **Decision:** The service delivers all primary capabilities defined in `PRD.md`:
+  - Account creation with server-generated identifiers.
+  - Balance retrieval endpoint.
+  - Atomic credit and debit transaction execution.
+  - Strict overdraft prevention with non-negative balance enforcement.
+  - Idempotent transaction reference checking.
+  - Paginated and filterable transaction history.
+  - Interactive browser-based financial dashboard.
+  - Automated integration and concurrency test suite (48 tests).
+
+### 3. Optional Money-Transfer Feature `[Explicitly Out of Scope]`
+- **Status:** Not implemented as a standalone peer-to-peer endpoint.
+- **Rationale:** Section 7 of `PRD.md` categorizes inter-account balance transfers as an "Optional Extension / Future Scope". Rather than implementing a non-standard transfer endpoint without clear requirements for cross-account rollback or dual-reference semantics, engineering effort was prioritized on:
+  1. Rock-solid single-account atomicity and pessimistic row locking (`SELECT ... FOR UPDATE`).
+  2. Multi-threaded race condition tests asserting aggregate balance invariants under high concurrency.
+  3. Strict duplicate reference handling and error envelopes.
+  4. Real-time in-browser Financial Dashboard with decoupled aggregation.
+- **Equivalence:** Inter-account transfers can be simulated cleanly by executing a debit on the source account and a credit on the destination account using standard ledger endpoints.
+
+---
+
+## B. Business Rules
+
+### 1. Account Creation & Initial Balance `[Engineering Decision]`
+- **Zero Balance Enforcement:** All newly created accounts initialize with exactly `₹0.00`.
+- **Client Balance Rejection:** `POST /accounts` accepts only the account holder's `name`. If a client attempts to submit a `balance` field, the request is rejected with `422 Unprocessable Entity` (`extra="forbid"` in Pydantic schema). This prevents clients from fabricating opening balances.
+- **Name Validation:** Account holder names are trimmed of leading and trailing whitespace, must contain between 1 and 150 characters, and cannot consist solely of whitespace.
+
+### 2. Identifier Generation `[Engineering Decision]`
+- **UUIDv4 Standard:** Accounts and transactions are assigned standard RFC 4122 UUIDv4 identifiers generated by the server (`uuid.uuid4()`).
+- **Client-Supplied Identifiers:** Clients cannot prescribe account or transaction UUIDs. Path parameters containing malformed UUID strings are rejected with `422 Unprocessable Entity` before reaching the service layer.
+
+### 3. Currency & Monetary Precision `[Engineering Decision]`
+- **Single-Currency Ledger:** The system operates strictly in Indian Rupees (INR, `₹`). Multi-currency ledgers, exchange rates, and foreign currency conversion are explicitly out of scope.
+- **Fixed-Point Storage:** Monetary amounts are stored as PostgreSQL `NUMERIC(18, 2)` (supporting up to 16 integer digits and 2 fractional digits).
+- **Exact Decimal Arithmetic:** All calculations in the Python application layer utilize `decimal.Decimal`. Standard IEEE-754 binary floating-point numbers (`float`) are strictly forbidden across models, services, and schemas to eliminate rounding errors.
+- **JSON Serialization:** Monetary values are serialized in JSON API responses as two-decimal string representations (e.g. `"1000.00"`, `"0.00"`) to prevent JavaScript clients from corrupting precision when parsing numbers into 64-bit IEEE-754 floats.
+
+### 4. Transaction Amounts `[Engineering Decision]`
+- **Strictly Positive Values:** Every credit and debit transaction must specify an amount greater than zero (`amount > 0.00`).
+- **Two-Decimal Boundary:** Transaction amounts are validated to have at most 2 decimal places. Values with three or more decimals (e.g. `10.555`), negative values, zero, and special tokens (`NaN`, `Infinity`) are rejected with `422 Unprocessable Entity`.
+
+### 5. Idempotency & Reference Uniqueness `[Assignment Interpretation]`
+- **Account-Scoped Uniqueness:** The client-supplied `reference_id` is unique *per account*, not globally. The database schema enforces `UNIQUE (account_id, reference_id)`.
+- **Rationale:** In enterprise billing and payroll systems, different clients or external vendors may independently generate identical invoice numbers (e.g. `INV-001`). Enforcing uniqueness per account prevents cross-account collisions while strictly guarding against duplicate submissions within any single account.
+- **Replay Behavior:** If a request submits an existing `reference_id` for the same account, the operation is rejected with `409 Conflict` (`DUPLICATE_REFERENCE`). The API does not silently replay the previous transaction response.
+- **Reference Characteristics:** `reference_id` is case-sensitive, whitespace-trimmed, and constrained between 1 and 128 characters.
+
+### 6. Overdraft & Insufficient Balance `[Engineering Decision]`
+- **Strict Zero Floor:** Overdrafts, credit lines, and negative balances are forbidden.
+- **Defense in Depth:**
+  1. *Service Layer:* The service checks `current_balance - debit_amount >= 0` under an exclusive row lock. If negative, an `InsufficientBalanceError` is raised, returning `409 Conflict` (`INSUFFICIENT_BALANCE`).
+  2. *Database Layer:* The `accounts` table includes `CHECK (balance >= 0)`. Even if an application bug bypassed the service check, PostgreSQL aborts the transaction at the storage layer.
+- **Zero Impact on Rejection:** When a debit is rejected due to insufficient balance, the account balance remains unchanged, and no record is committed to the `transactions` table.
+
+### 7. Ledger Immutability `[Engineering Decision]`
+- **Append-Only Architecture:** Committed ledger entries cannot be modified or deleted. The API provides no `PUT`, `PATCH`, or `DELETE` endpoints for the `transactions` resource.
+- **Corrections via Offsetting Transactions:** Adjustments or reversals must be enacted by creating a subsequent offsetting transaction (e.g. a credit reversing an erroneous debit), preserving the full audit trail.
+
+### 8. Timestamp Generation & Ordering `[Engineering Decision]`
+- **Server-Authoritative Clock:** Transaction and account timestamps (`created_at`) are generated by PostgreSQL using `now()` with timezone (`TIMESTAMPTZ`). Client-supplied timestamps are ignored.
+- **Deterministic Sort Order:** All history and activity queries sort records newest-first using a composite order:
+  $$\text{ORDER BY } \text{created\_at DESC}, \text{id DESC}$$
+  Using `id DESC` as a secondary tie-breaker guarantees a deterministic sequence even if multiple transactions commit within the exact same microsecond.
+
+---
+
+## C. Data Integrity and Concurrency
+
+### 1. Invariant Guarantee `[Engineering Decision]`
+- **Aggregate Balance Formula:** The system enforces the fundamental financial ledger invariant:
+  $$\text{Stored Balance} = \sum(\text{Committed Credits}) - \sum(\text{Committed Debits})$$
+  This aggregate formula is verified by automated concurrency tests (`test_concurrency_aggregate_invariant`).
+
+### 2. Transactional Atomicity `[Engineering Decision]`
+- **Unit of Work:** Inserting the immutable transaction row into `transactions` and mutating the `balance` column in `accounts` occur inside the exact same database transaction block.
+- **Failure Non-Persistence:** If an unhandled exception or constraint violation occurs at any point before commit, the SQLAlchemy session issues a `ROLLBACK`. Neither the balance nor the transaction row is persisted.
+
+### 3. Concurrency Control: Pessimistic Row Locking `[Engineering Decision]`
+- **Strategy:** When processing any transaction (`credit` or `debit`), the service layer acquires an exclusive pessimistic row-level lock on the account record:
+  ```sql
+  SELECT * FROM accounts WHERE id = :account_id FOR UPDATE;
+  ```
+- **Rationale Over Optimistic Locking:**
+  - In a financial ledger, debits compete directly for a shared resource (the available balance). Under high concurrency, optimistic concurrency control (version numbers) leads to high failure/retry rates for honest users.
+  - Pessimistic locking serializes competing requests for the *same* account at the database engine level without blocking operations on *different* accounts.
+  - The lock is released immediately upon `commit()` or `rollback()`.
+- **Verification:** Verified by `test_concurrent_debits_prevent_negative_balance`, which executes 10 parallel threads attempting to overdraw an account simultaneously, confirming zero negative balance violations.
+
+---
+
+## D. API Behavior & Conventions
+
+### 1. Pagination Standards `[Assignment Interpretation]`
+- **Parameters:**
+  - `page`: 1-based integer, minimum `1`, default `1`.
+  - `limit`: Integer, minimum `1`, maximum `100`, default `20`.
+- **Validation:** Values outside these bounds (e.g. `page=0`, `page=-1`, `limit=0`, `limit=101`) are rejected with `422 Unprocessable Entity`.
+- **Response Metadata:** All paginated lists return an envelope containing `items` and a `pagination` object with `page`, `page_size`, `total_records`, and `total_pages`.
+
+### 2. Unified Error Envelope `[Engineering Decision]`
+- **Standard Format:** All errors return a consistent, structured JSON envelope:
+  ```json
+  {
+    "error": {
+      "code": "STRING_ERROR_CODE",
+      "message": "Human-readable explanation.",
+      "details": {}
+    }
+  }
+  ```
+- **Error Codes:**
+  - `VALIDATION_ERROR` (`422`): Request body, parameter, or query validation failure.
+  - `ACCOUNT_NOT_FOUND` (`404`): The specified account UUID does not exist.
+  - `INSUFFICIENT_BALANCE` (`409`): Attempted debit exceeds available balance.
+  - `DUPLICATE_REFERENCE` (`409`): Reference ID already processed for this account.
+  - `RESOURCE_NOT_FOUND` (`404`): Unmatched route or static file.
+  - `INTERNAL_ERROR` (`500`): Unhandled server exception (sanitized in response).
+
+---
+
+## E. Security Boundaries & Deployment Considerations
+
+### 1. Unauthenticated Deployment `[Explicitly Out of Scope]`
+- **Assessment Scope:** As mandated by the recruitment assignment guidelines, user authentication (JWT, OAuth2, session cookies) and role-based access control (RBAC) are excluded from the API contract.
+- **Demonstration Notice:** Because endpoints are publicly accessible, reviewers and testers must submit only synthetic demonstration data. Real personal, banking, or production data must never be uploaded.
+
+### 2. Connection Pooling in Serverless Environments `[Engineering Decision]`
+- **Vercel Execution Context:** On serverless platforms (Vercel), stateless container lifecycles can exhaust PostgreSQL connections if standard connection pools are retained across invocations.
+- **Engine Configuration:** The database session factory detects serverless execution (`VERCEL=1`) and dynamically applies SQLAlchemy's `NullPool`, opening and closing connections per invocation.
+- **Supabase Pooler Integration:** Vercel serverless functions operate in an IPv4 network environment. Supabase's direct database hostname (`db.[ref].supabase.co`) resolves only to IPv6. The application is configured to route through Supabase's **Session Pooler** (`aws-0-[region].pooler.supabase.com:5432`), ensuring IPv4 connectivity and SSL negotiation (`sslmode=require`).
+
+---
+
+## F. Explicit Limitations
+
+The following items represent known boundaries of the current release:
+
+1. **Multi-Currency:** Not supported. All transactions and displays are single-currency INR (`₹`).
+2. **Inter-Account Transfer Endpoint:** No single-call atomic transfer endpoint exists. Transfers must be orchestrated via paired debit and credit transactions.
+3. **Application-Level Rate Limiting:** Rate limiting (e.g. token bucket or Redis leaky bucket) is not implemented in Python; public abuse protection relies on reverse proxy and cloud infrastructure layers.
+4. **Historical Balance Time-Travel:** The `accounts.balance` column stores the current real-time balance. Reconstructing an account's historical balance at an arbitrary past timestamp requires calculating the running sum from the `transactions` table.

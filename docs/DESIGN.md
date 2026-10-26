@@ -1,439 +1,406 @@
 # Technical Design Document
 
 **Project:** Transaction Ledger API  
-**Status:** Proposed baseline for implementation  
-**Related documents:** [`PRD.md`](./PRD.md), [`TECH_STACK.md`](./TECH_STACK.md)
+**Status:** Implemented and Verified  
+**Related documents:** [`PRD.md`](./PRD.md), [`TECH_STACK.md`](./TECH_STACK.md), [`API_DOCUMENTATION.md`](./API_DOCUMENTATION.md), [`ASSUMPTIONS.md`](./ASSUMPTIONS.md)
 
-## 1. Design summary
+---
 
-Build a single-process REST API backed by PostgreSQL. The API owns transaction validation and business rules; PostgreSQL is the durable source of truth and enforces important local constraints. Each successful credit or debit writes an immutable transaction record and updates the account's stored balance in the same database transaction.
+## 1. Executive Summary
 
-No external banking, UPI or payment API is called. The credit/debit requests represent simulated ledger events within this assignment.
+The Transaction Ledger API is a production-grade, simulated financial ledger system engineered with Python 3.11, FastAPI, SQLAlchemy 2.0, PostgreSQL 16, Pydantic v2, and Alembic. It provides deterministic, ACID-compliant ledger accounting for account creation, monetary credit/debit operations, real-time balance queries, and paginated transaction history.
 
-## 2. System architecture
+The system is designed with strict financial integrity invariants:
+- Zero initial balance on account creation.
+- Strict rejection of debits resulting in a negative balance (overdraft prevention).
+- Strict idempotency via per-account unique reference identifiers (`reference_id`).
+- Concurrency serialization via PostgreSQL pessimistic row locks (`SELECT ... FOR UPDATE`).
+- Immutable append-only ledger entries.
+- Dual deployment targets: containerized Docker Compose architecture for local/server environments, and an ASGI serverless runtime on Vercel paired with a Supabase PostgreSQL session pooler.
+
+---
+
+## 2. System Architecture & Request Flow
+
+The architecture follows a clean layered domain pattern:
 
 ```text
-API client (Swagger UI / curl / Postman)
-                 |
-                 v
-         FastAPI route layer
-                 |
-                 v
-       Pydantic request schemas
-                 |
-                 v
-     Service / business-rule layer
-                 |
-                 v
-       SQLAlchemy unit of work
-                 |
-                 v
-      PostgreSQL database
-        |                |
-        v                v
-     accounts        transactions
+                               +--------------------------------------------+
+                               |              Clients                       |
+                               |  (Web Dashboard / Swagger UI / cURL / CI) |
+                               +--------------------------------------------+
+                                                     |
+                                                     v
+                               +--------------------------------------------+
+                               |     FastAPI Application (ASGI Server)      |
+                               |   - VercelRewriterMiddleware (Path normal) |
+                               |   - Global Exception Handlers (AppError)   |
+                               |   - Static Dashboard Route (GET /)         |
+                               +--------------------------------------------+
+                                                     |
+                                                     v
+                               +--------------------------------------------+
+                               |         Route Layer (app/api/)             |
+                               |  - accounts.py (POST /accounts, balance)   |
+                               |  - transactions.py (POST tx, GET history)  |
+                               +--------------------------------------------+
+                                                     |
+                                                     v
+                               +--------------------------------------------+
+                               |      Pydantic Schemas (app/schemas/)       |
+                               |  - Field-level validation (Decimal, Regex) |
+                               |  - Extra fields forbidden                  |
+                               +--------------------------------------------+
+                                                     |
+                                                     v
+                               +--------------------------------------------+
+                               |     Service Layer (app/services/)          |
+                               |  - Account & Transaction business logic    |
+                               |  - Transaction demarcation (begin/commit)  |
+                               +--------------------------------------------+
+                                                     |
+                                                     v
+                               +--------------------------------------------+
+                               |    Persistence Layer (SQLAlchemy 2.0 ORM)  |
+                               |  - Parameterized ORM queries               |
+                               |  - SELECT ... FOR UPDATE pessimistic lock  |
+                               +--------------------------------------------+
+                                                     |
+                                                     v
+                               +--------------------------------------------+
+                               |       PostgreSQL 16 Database Engine        |
+                               |  - accounts (UUID PK, CHECK balance >= 0)  |
+                               |  - transactions (UUID PK, UNIQUE ref_id)   |
+                               |  - Foreign Key ON DELETE RESTRICT          |
+                               +--------------------------------------------+
 ```
 
-### Layer responsibilities
+### Layer Responsibilities
 
-- **Route layer:** Defines HTTP endpoints, status codes, query parameters and response models. It should remain thin.
-- **Schema layer:** Validates request fields and defines response contracts.
-- **Service layer:** Implements account creation, credit/debit processing, balance reads and history queries. It owns business rules and transaction boundaries.
-- **Persistence layer:** SQLAlchemy models and database access. Use parameterized ORM queries.
-- **Database:** Enforces primary keys, foreign keys, uniqueness and value checks; provides atomic commits and row locks.
-- **Migration layer:** Alembic migrations create and evolve the schema.
+1. **Routing & Middleware (`app/main.py`, `app/api/`):** Exposes HTTP endpoints, configures OpenAPI documentation, serves the embedded dashboard UI, and applies `VercelRewriterMiddleware` to normalize URL rewrites in serverless environments.
+2. **Schema & Validation (`app/schemas/`):** Validates and sanitizes incoming HTTP payloads using Pydantic v2. Rejects unknown fields (`extra = "forbid"`), validates monetary precision to exactly 2 decimal places, and strips leading/trailing whitespace.
+3. **Domain Service Layer (`app/services/`):** Coordinates business transactions, acquires pessimistic row locks, computes ledger balances using Python's arbitrary-precision `Decimal`, validates duplicate references, and ensures ACID consistency.
+4. **Database Session & Connection Management (`app/db/`):** Configures SQLAlchemy engine. Employs `QueuePool` in persistent server/container environments and `NullPool` in serverless environments (Vercel) to prevent connection exhaustion.
+5. **Database Storage (`PostgreSQL`):** Durable single source of truth enforcing foreign keys, check constraints, composite unique indexes, and serializable row locks.
 
-## 3. Project structure
+---
+
+## 3. Actual Project Structure
 
 ```text
-transaction-ledger-api/
-├── README.md
-├── requirements.txt
-├── .env.example
-├── .gitignore
-├── Dockerfile
-├── compose.yaml
-├── alembic.ini
+Transaction_Ledger/
+├── .env.example                     # Environment configuration template
+├── .gitignore                       # Git ignore definitions
+├── Dockerfile                       # Multi-stage container build
+├── compose.yaml                     # Local multi-service container orchestration
+├── requirements.txt                 # Pinned Python dependencies
+├── alembic.ini                      # Alembic database migration configuration
+├── vercel.json                      # Vercel serverless deployment specification
+├── main.py                          # Root entrypoint
+├── api/
+│   └── index.py                     # Vercel serverless handler
 ├── app/
 │   ├── __init__.py
-│   ├── main.py
+│   ├── main.py                      # FastAPI application factory, middleware, exception handlers
 │   ├── api/
 │   │   ├── __init__.py
-│   │   ├── accounts.py
-│   │   └── transactions.py
+│   │   ├── accounts.py              # Account creation and balance endpoints
+│   │   └── transactions.py          # Transaction mutation and paginated history endpoints
 │   ├── core/
-│   │   ├── config.py
-│   │   └── errors.py
+│   │   ├── __init__.py
+│   │   ├── config.py                # Pydantic Settings, DB URL parsing, Pool selection
+│   │   └── errors.py                # Custom AppError hierarchy and HTTP mappings
 │   ├── db/
-│   │   ├── base.py
-│   │   └── session.py
+│   │   ├── __init__.py
+│   │   ├── base.py                  # SQLAlchemy DeclarativeBase
+│   │   └── session.py               # SessionLocal dependency and engine factory
 │   ├── models/
-│   │   ├── account.py
-│   │   └── transaction.py
+│   │   ├── __init__.py
+│   │   ├── account.py               # Account database entity with check constraints
+│   │   └── transaction.py           # Transaction database entity with unique constraints
 │   ├── schemas/
-│   │   ├── account.py
-│   │   ├── transaction.py
-│   │   └── errors.py
+│   │   ├── __init__.py
+│   │   ├── account.py               # Account request/response Pydantic models
+│   │   ├── transaction.py           # Transaction mutation, query, and pagination schemas
+│   │   └── errors.py                # Standard error envelope schema
 │   ├── services/
-│   │   ├── accounts.py
-│   │   └── transactions.py
-│   └── repositories/          # Include only if it adds clarity; do not duplicate service logic
+│   │   ├── __init__.py
+│   │   ├── accounts.py              # Account business domain service
+│   │   └── transactions.py          # Atomic transaction mutation and history service
+│   └── static/
+│       └── index.html               # Embedded dashboard SPA (HTML5, Vanilla CSS, JS)
 ├── migrations/
+│   ├── env.py                       # Alembic runtime environment
+│   ├── script.py.mako               # Migration template
+│   └── versions/
+│       └── c1f1a5664db1_create_accounts_and_transactions_tables.py
 ├── tests/
-│   ├── conftest.py
-│   ├── test_accounts.py
-│   ├── test_transactions.py
-│   ├── test_history.py
-│   └── test_concurrency.py
-├── docs/
-│   ├── PRD.md
-│   ├── TECH_STACK.md
-│   ├── DESIGN.md
-│   └── ASSUMPTIONS.md
-└── postman/
-    └── collection.json
+│   ├── conftest.py                  # Test database fixtures, isolation, and client setup
+│   ├── test_accounts.py             # Account validation and retrieval tests
+│   ├── test_transactions.py         # Credit/debit validation and balance tests
+│   ├── test_history.py              # Filtering, sorting, and pagination tests
+│   └── test_concurrency.py          # Parallel debit and race condition tests
+└── docs/
+    ├── PRD.md                       # Product Requirements Document
+    ├── TECH_STACK.md                # Technology choices and rationale
+    ├── DESIGN.md                    # Technical Architecture & Design Document (this file)
+    ├── ASSUMPTIONS.md               # Engineering assumptions and scope document
+    └── API_DOCUMENTATION.md         # Complete API reference and cURL guide
 ```
 
-Keep the architecture proportional to the assignment. The `repositories/` layer is optional; avoid creating abstractions that merely wrap one ORM call without adding a clear benefit. Copy the three planning documents into the repository under `docs/` before or during implementation.
+---
 
-## 4. Data model
+## 4. Database Schema & Data Integrity
 
-### 4.1 `accounts`
+The physical database schema is managed via Alembic revision `c1f1a5664db1`.
 
-| Column | Type | Rules |
-|---|---|---|
-| `id` | UUID | Primary key, generated by the server |
-| `name` | VARCHAR(150) | Required; trimmed; must contain at least one non-whitespace character |
-| `balance` | NUMERIC(18,2) | Required; default `0.00`; `CHECK (balance >= 0)` |
-| `created_at` | TIMESTAMPTZ | Required; generated server-side; returned in UTC |
+### 4.1 `accounts` Table
 
-The account-creation request schema does not contain `balance`. Configure the request schema to forbid extra fields so clients cannot attempt to set it.
+| Column | Type | Constraints / Modifiers | Description |
+|---|---|---|---|
+| `id` | `UUID` | `PRIMARY KEY`, default `gen_random_uuid()` | Unique account identifier |
+| `name` | `VARCHAR(150)` | `NOT NULL` | Account holder name (1-150 chars, non-blank) |
+| `balance` | `NUMERIC(18,2)` | `NOT NULL`, default `0.00`, `CHECK (balance >= 0)` | Stored balance; cannot be negative |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, default `CURRENT_TIMESTAMP` | Server-generated account creation timestamp |
 
-### 4.2 `transactions`
+### 4.2 `transactions` Table
 
-| Column | Type | Rules |
-|---|---|---|
-| `id` | UUID | Primary key, generated by the server |
-| `account_id` | UUID | Required foreign key to `accounts.id` |
-| `type` | VARCHAR or database enum | Required; constrained to `credit` or `debit` |
-| `amount` | NUMERIC(18,2) | Required; `CHECK (amount > 0)` |
-| `description` | VARCHAR(500) or TEXT with validation | Required; trimmed and non-empty |
-| `reference_id` | VARCHAR(128) | Required; trimmed and non-empty; case-sensitive |
-| `created_at` | TIMESTAMPTZ | Required; generated server-side |
+| Column | Type | Constraints / Modifiers | Description |
+|---|---|---|---|
+| `id` | `UUID` | `PRIMARY KEY`, default `gen_random_uuid()` | Unique transaction entry identifier |
+| `account_id` | `UUID` | `NOT NULL`, `FOREIGN KEY (accounts.id) ON DELETE RESTRICT` | Referenced account |
+| `type` | `VARCHAR(10)` | `NOT NULL`, `CHECK (type IN ('credit', 'debit'))` | Ledger mutation operation |
+| `amount` | `NUMERIC(18,2)` | `NOT NULL`, `CHECK (amount > 0)` | Monetary quantity (strictly positive) |
+| `description` | `VARCHAR(500)` | `NOT NULL` | Descriptive note (1-500 chars) |
+| `reference_id` | `VARCHAR(128)` | `NOT NULL` | External idempotency reference |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL`, default `CURRENT_TIMESTAMP` | Ledger entry timestamp |
 
-### 4.3 Constraints and indexes
+### 4.3 Database Constraints & Indexes
 
-- Primary keys on both tables.
-- Foreign key `transactions.account_id -> accounts.id`.
-- Unique constraint on `transactions(account_id, reference_id)`.
-- Check constraint for valid transaction type.
-- Check constraint for a positive transaction amount.
-- Check constraint that stored account balance cannot be negative.
-- Index on transaction history for `(account_id, created_at DESC, id DESC)` or an equivalent index supported by the chosen migration.
+1. **Foreign Key Protection (`fk_transactions_account_id`):** `ON DELETE RESTRICT` guarantees that an account cannot be deleted if historical ledger entries exist.
+2. **Per-Account Reference Uniqueness (`uq_account_reference`):**
+   ```sql
+   UNIQUE (account_id, reference_id)
+   ```
+   Ensures absolute idempotency at the storage engine level. Two identical references cannot exist under the same account.
+3. **Amount Check Constraint (`ck_transaction_positive_amount`):**
+   ```sql
+   CHECK (amount > 0)
+   ```
+   Prevents zero or negative monetary inputs at the database tier.
+4. **Balance Check Constraint (`ck_account_non_negative_balance`):**
+   ```sql
+   CHECK (balance >= 0)
+   ```
+   Serves as an immutable safeguard against account overdraws, backing up application-level validation.
+5. **Composite Historical Query Index (`ix_transactions_account_created_id`):**
+   ```sql
+   CREATE INDEX ix_transactions_account_created_id ON transactions (account_id, created_at DESC, id DESC);
+   ```
+   Optimizes transaction history retrieval, timestamp ordering, and deterministic UUID tie-breaking for pagination.
 
-PostgreSQL constraints protect individual rows and relationships. The cross-row invariant that an account's stored balance equals the sum of its valid ledger entries is maintained by the transaction service: all writes must go through the atomic transaction flow. The test suite should independently recompute ledger balances and compare them with stored balances. Do not claim that a simple row-level `CHECK` constraint can enforce this aggregate invariant.
+---
 
-## 5. API contract
+## 5. Concurrency Control & Atomic Mutations
 
-All endpoints use JSON. FastAPI exposes the OpenAPI schema at `/openapi.json` and interactive documentation at `/docs`.
+### 5.1 The Ledger Invariant
 
-### 5.1 `GET /health`
+The fundamental invariant of the ledger system is:
 
-Operational convenience endpoint for local/reviewer checks.
+$$\text{Stored Account Balance} = \sum (\text{Successful Credits}) - \sum (\text{Successful Debits})$$
 
-Success: `200 OK`
+$$\text{Stored Account Balance} \ge 0.00$$
 
-```json
-{"status": "ok"}
+### 5.2 Atomic Mutation Lifecycle
+
+Every mutation executed via `POST /accounts/{account_id}/transactions` runs inside a single, discrete database transaction within `TransactionService.create_transaction`:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant API as FastAPI Router
+    participant Service as TransactionService
+    participant DB as PostgreSQL 16
+
+    Client->>API: POST /accounts/{id}/transactions
+    API->>API: Validate Pydantic schema (amount, type, ref)
+    API->>Service: create_transaction(db, account_id, payload)
+    Note over Service,DB: Begin Single Database Transaction
+    Service->>DB: SELECT * FROM accounts WHERE id = :id FOR UPDATE
+    alt Account Not Found
+        DB-->>Service: None
+        Service-->>API: raise AccountNotFoundError (404)
+        API-->>Client: 404 ACCOUNT_NOT_FOUND
+    end
+    DB-->>Service: Locked Account Record
+    Service->>DB: SELECT id FROM transactions WHERE account_id = :id AND reference_id = :ref
+    alt Duplicate Reference Exists
+        DB-->>Service: Transaction Record Found
+        Service-->>API: raise DuplicateReferenceError (409)
+        API-->>Client: 409 DUPLICATE_REFERENCE
+    end
+    DB-->>Service: None (Unique Reference)
+    alt Debit & balance < amount
+        Service-->>API: raise InsufficientBalanceError (409)
+        API-->>Client: 409 INSUFFICIENT_BALANCE
+    end
+    Note over Service: Compute new_balance via Python Decimal
+    Service->>DB: INSERT INTO transactions (id, account_id, type, amount, ...)
+    Service->>DB: UPDATE accounts SET balance = :new_balance WHERE id = :id
+    Service->>DB: COMMIT
+    DB-->>Service: Transaction Committed
+    Service-->>API: TransactionResponse (with updated balance)
+    API-->>Client: 201 Created
 ```
 
-Do not return connection strings, secrets, environment variables or detailed infrastructure information. If database readiness is included, keep the response minimal and ensure it does not leak details.
+### 5.3 Concurrency Serialization
 
-### 5.2 `POST /accounts`
+1. **Row Lock Acquisition:** `db.execute(select(Account).where(Account.id == account_id).with_for_update())` forces concurrent requests targeting the same account into an orderly queue at the PostgreSQL lock manager.
+2. **Deterministic Evaluation:** A second concurrent request cannot read or evaluate `account.balance` until the preceding transaction commits or aborts.
+3. **Database-Tier Constraint Safety:** Even in extreme circumstances where locking is bypassed, PostgreSQL's `CHECK (balance >= 0)` and `UNIQUE (account_id, reference_id)` reject conflicting writes and trigger immediate transaction rollback.
 
-Creates an account.
+---
 
-Request:
+## 6. Error Handling Strategy
 
-```json
-{"name": "Akshay"}
-```
-
-Success: `201 Created`
-
-```json
-{
-  "id": "e4d08e15-bb30-4e13-9287-22fd9b41587f",
-  "name": "Akshay",
-  "balance": "0.00",
-  "created_at": "2026-10-26T10:00:00Z"
-}
-```
-
-Rules:
-
-- The client cannot provide `id`, `balance` or `created_at`.
-- Reject missing, empty or whitespace-only name values.
-- Reject unknown request fields rather than silently discarding them.
-
-### 5.3 `POST /accounts/{account_id}/transactions`
-
-Creates a credit or debit. The account ID comes from the path; the API response includes it as part of the transaction resource.
-
-Request example:
-
-```json
-{
-  "type": "credit",
-  "amount": "1000.00",
-  "description": "Freelance payment",
-  "reference_id": "PAY-001"
-}
-```
-
-Success: `201 Created`
-
-```json
-{
-  "id": "6bd8701a-2d9c-40d7-bb7a-7a1cab5557d9",
-  "account_id": "e4d08e15-bb30-4e13-9287-22fd9b41587f",
-  "type": "credit",
-  "amount": "1000.00",
-  "description": "Freelance payment",
-  "reference_id": "PAY-001",
-  "created_at": "2026-10-26T10:01:00Z",
-  "account_balance": "1000.00"
-}
-```
-
-`account_balance` is included in the create response as a convenience; it is not a mutable transaction field. A client can always retrieve the latest balance using the balance endpoint.
-
-The `amount` input is validated as a finite decimal greater than zero, with no more than two fractional digits and within the supported `NUMERIC(18,2)` range. Decimal values should be represented as strings in requests and responses to avoid binary floating-point ambiguity in client code. Internally use Python `Decimal`.
-
-### 5.4 `GET /accounts/{account_id}/balance`
-
-Success: `200 OK`
-
-```json
-{
-  "account_id": "e4d08e15-bb30-4e13-9287-22fd9b41587f",
-  "balance": "700.00"
-}
-```
-
-If no account with the ID exists, return `404 ACCOUNT_NOT_FOUND`.
-
-### 5.5 `GET /accounts/{account_id}/transactions`
-
-Query parameters:
-
-- `type`: optional `credit` or `debit`.
-- `page`: optional integer, default `1`, minimum `1`.
-- `limit`: optional integer, default `20`, range `1..100`.
-
-Example:
-
-`GET /accounts/{account_id}/transactions?type=debit&page=1&limit=20`
-
-Success: `200 OK`
-
-```json
-{
-  "items": [
-    {
-      "id": "6bd8701a-2d9c-40d7-bb7a-7a1cab5557d9",
-      "account_id": "e4d08e15-bb30-4e13-9287-22fd9b41587f",
-      "type": "debit",
-      "amount": "300.00",
-      "description": "Equipment purchase",
-      "reference_id": "PURCHASE-001",
-      "created_at": "2026-10-26T10:05:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "page_size": 20,
-    "total_records": 1,
-    "total_pages": 1
-  }
-}
-```
-
-Semantics:
-
-- If `type` is omitted, include both credits and debits.
-- Sort by `created_at DESC, id DESC` for deterministic order when timestamps tie.
-- `total_records` is the number of records matching the account and type filter before pagination.
-- `total_pages = ceil(total_records / page_size)`; it is `0` when there are no matching records.
-- A valid page beyond the final page returns an empty `items` list and normal pagination metadata.
-- Return `404 ACCOUNT_NOT_FOUND` for a nonexistent account.
-- Reject invalid filter values and invalid pagination with `422 VALIDATION_ERROR`.
-
-## 6. Error response contract
-
-Use a consistent error envelope. Example:
+The application wraps all operational, domain, and validation exceptions into a uniform error envelope:
 
 ```json
 {
   "error": {
-    "code": "INSUFFICIENT_BALANCE",
-    "message": "The account does not have sufficient funds for this debit.",
+    "code": "ERROR_CODE",
+    "message": "Human-readable explanation.",
     "details": {}
   }
 }
 ```
 
-For validation errors, `details` may contain a list of fields and safe messages. Do not return raw database errors, SQL statements, stack traces, environment variables or secrets.
+### 6.1 Mapped Error Matrix
 
-| Scenario | HTTP status | Error code |
-|---|---:|---|
-| Account created | 201 | — |
-| Transaction created | 201 | — |
-| Resource retrieved | 200 | — |
-| Invalid request body/field/type/amount/pagination | 422 | `VALIDATION_ERROR` |
-| Malformed JSON (if separately distinguishable by framework) | 400 or consistent validation status | `INVALID_REQUEST` |
-| Account does not exist | 404 | `ACCOUNT_NOT_FOUND` |
-| Duplicate reference for same account | 409 | `DUPLICATE_REFERENCE` |
-| Debit would overdraw account | 409 | `INSUFFICIENT_BALANCE` |
-| Temporary database/service unavailability | 503 | `SERVICE_UNAVAILABLE` |
-| Unexpected server error | 500 | `INTERNAL_ERROR` |
+| HTTP Status | Error Code | Trigger Condition |
+|---|---|---|
+| `400 Bad Request` | `INVALID_REQUEST` | Malformed JSON syntax or non-parsable body |
+| `404 Not Found` | `ACCOUNT_NOT_FOUND` | Path parameter refers to non-existent account UUID |
+| `409 Conflict` | `INSUFFICIENT_BALANCE` | Debit amount exceeds locked account's available balance |
+| `409 Conflict` | `DUPLICATE_REFERENCE` | `reference_id` already recorded for the given account |
+| `422 Unprocessable Entity` | `VALIDATION_ERROR` | Schema failure: negative amount, invalid type, empty strings, invalid pagination |
+| `500 Internal Server Error` | `INTERNAL_ERROR` | Unhandled server exceptions (details sanitized from client) |
+| `503 Service Unavailable` | `SERVICE_UNAVAILABLE` | Database connectivity failure or health probe timeout |
 
-The implementation should pick and test a consistent response for malformed JSON within FastAPI's exception handling. Do not expose the original exception text to callers.
+---
 
-## 7. Transaction processing and concurrency
+## 7. Frontend Integration & Dashboard Architecture
 
-### 7.1 Required invariant
+The web dashboard is delivered as a standalone Single Page Application (SPA) embedded directly in the repository at `app/static/index.html` and served by FastAPI at `GET /`.
 
-For each account:
+### Decoupled Data Flow Architecture
 
-`stored balance = sum(successful credits) - sum(successful debits)`
+To prevent filter interactions from distorting financial metrics, the frontend implements two completely independent data querying paths:
 
-The stored balance must never become negative. Rejected operations must not change the balance or create a committed ledger entry.
+1. **Financial Overview Aggregation (`fetchOverviewData`):**
+   - Queries `GET /accounts/{id}/transactions?limit=100` without transaction type filters.
+   - Computes Total Credits, Total Debits, and Net Lifetime Flow across all available transactions.
+   - Guarantees that applying a "Credit Only" or "Debit Only" filter in the transaction history table does **not** alter the account overview balances.
+2. **Transaction History Display (`fetchTransactionHistory`):**
+   - Applies active user filters (`type=credit`, `type=debit`, or all).
+   - Manages page-based pagination (`page`, `limit`).
+   - Renders the chronological table, timestamp formatting, and badge styling.
 
-### 7.2 Credit/debit flow
+---
 
-Every mutation must follow one explicit database transaction, implemented in a single service-layer unit of work:
+## 8. Deployment Architecture & Considerations
 
-1. Begin the database transaction.
-2. Load the account by ID using a PostgreSQL row lock (`SELECT ... FOR UPDATE`). If missing, abort and return `404`.
-3. Check whether `(account_id, reference_id)` already exists. If yes, abort and return `409 DUPLICATE_REFERENCE` without mutation.
-4. Validate the amount and transaction type. Request-schema validation should reject invalid input before business processing; the service must still enforce business rules.
-5. For debit, confirm that the locked account's balance is greater than or equal to the requested amount. Otherwise abort with `409 INSUFFICIENT_BALANCE`.
-6. Compute the new balance using `Decimal`.
-7. Insert the immutable transaction record and update the account balance in the same database transaction.
-8. Commit once both changes are ready.
-9. If a database write or commit fails, roll back the entire operation. Translate known constraint errors to safe API errors after rollback.
+### 8.1 Docker Compose (Local & Production Server)
 
-Do not commit after inserting the transaction and then separately update the balance. Do not update the balance in a separate session. The account-row lock serializes API mutations for that account; the unique constraint remains a second line of defense against duplicate references.
+- **API Service:** Runs FastAPI inside a lightweight Python 3.11 container (`uvicorn app.main:app --host 0.0.0.0 --port 8000`).
+- **PostgreSQL Service:** Dedicated PostgreSQL 16 container with durable named volume (`postgres_data`).
+- **Startup Migration:** Entrypoint executes `alembic upgrade head` before booting the Uvicorn web workers.
+- **Connection Pooling:** Uses SQLAlchemy `QueuePool` (pool size: 10, max overflow: 20) with pre-ping validation.
 
-### 7.3 Concurrent debits example
+### 8.2 Vercel Serverless + Supabase Architecture
 
-Initial balance is `1000.00`. Two requests each debit `700.00` concurrently. The first request obtains the account lock, checks and applies the debit, then commits a balance of `300.00`. The second request can evaluate the account only after the first transaction releases the lock; it then sees `300.00` and is rejected. The final balance is `300.00`, never negative.
+- **Serverless Entrypoint:** `api/index.py` exposes `app` directly to Vercel's Python ASGI runtime.
+- **Path Normalization:** `VercelRewriterMiddleware` intercepts incoming `__url__` query parameters created by Vercel's rewrite rule (`"source": "/(.*)", "destination": "/api/index.py?__url__=/$1"`) and rewrites `scope["path"]` to ensure seamless routing for Swagger UI, static assets, and API routes.
+- **Connection Management:** Configures `NullPool` to prevent pool exhaustion across ephemeral serverless Lambda invocations.
+- **Supabase Integration:** Connects to Supabase IPv4 Session Pooler (`port 5432`, `sslmode=require`) to handle transaction queries reliably across distributed serverless function invocations.
 
-### 7.4 Duplicate-reference handling
+---
 
-- Normalize the reference by trimming surrounding whitespace; compare the resulting string case-sensitively.
-- Check for an existing reference after acquiring the account lock.
-- Enforce the unique key `(account_id, reference_id)` in PostgreSQL.
-- If a uniqueness violation still occurs, roll back before translating it to `409 DUPLICATE_REFERENCE`.
-- Do not treat a repeated reference as permission to process the body again, even if the new payload differs. This assignment's contract is to report that the transaction already exists.
+## 9. Verification & Test Strategy
 
-### 7.5 Transaction immutability
+The test suite validates data consistency, concurrency control, input validation, and boundary conditions. All tests run against a real PostgreSQL instance to ensure transactional behavior is authentically tested.
 
-Do not implement update or delete endpoints for transactions. The application code must treat saved transaction data as append-only. Database users and operational tooling should not have unnecessary update/delete privileges on ledger rows in a production system; for this assignment, document the intended append-only behavior and do not overstate it as tamper-proof against a privileged database administrator.
+### 9.1 Test Execution Results
 
-## 8. Security and operational boundaries
+Executed via `docker exec ledger_api pytest -v`:
 
-- No authentication or account-owner authorization is specified by the assignment. Document this as out of scope rather than silently implying the API is production-safe.
-- The default target is local execution using Docker Compose. Do not publish a write-enabled instance without access control and abuse protection.
-- Store local secrets in `.env`; commit only `.env.example`. Never echo `DATABASE_URL` in logs or errors.
-- Use an application database credential with only the privileges it needs. Use a separate, restricted credential for any migration process if it can be done without making the setup unwieldy.
-- Use SQLAlchemy parameters/ORM expressions, not string-built SQL from request values.
-- Use a small maximum page size (`100`) to bound query work.
-- Do not log request authorization headers, secrets or complete connection strings. Log operational failures without exposing sensitive internals.
-- Avoid broad CORS settings unless a browser frontend is introduced. Swagger UI is served by the same API origin locally.
+```text
+============================= test session starts ==============================
+platform linux -- Python 3.13.17, pytest-8.3.3, pluggy-1.7.0 -- /usr/local/bin/python3.13
+cachedir: .pytest_cache
+rootdir: /app
+plugins: anyio-4.15.1, asyncio-0.24.0
+asyncio: mode=Mode.STRICT, default_loop_scope=None
+collecting ... collected 48 items
 
-Relevant security guidance:
+tests/test_accounts.py::test_health_check PASSED                         [  2%]
+tests/test_accounts.py::test_create_account_success PASSED               [  4%]
+tests/test_accounts.py::test_create_account_name_whitespace_trimmed PASSED [  6%]
+tests/test_accounts.py::test_create_account_reject_empty_or_whitespace_name PASSED [  8%]
+tests/test_accounts.py::test_create_account_reject_missing_name PASSED   [ 10%]
+tests/test_accounts.py::test_create_account_reject_client_supplied_balance PASSED [ 12%]
+tests/test_accounts.py::test_create_account_reject_extra_unknown_fields PASSED [ 14%]
+tests/test_accounts.py::test_get_account_balance_success PASSED          [ 16%]
+tests/test_accounts.py::test_get_account_balance_not_found PASSED        [ 18%]
+tests/test_concurrency.py::test_concurrent_debits_prevent_negative_balance PASSED [ 20%]
+tests/test_concurrency.py::test_concurrent_duplicate_references PASSED   [ 22%]
+tests/test_concurrency.py::test_concurrency_aggregate_invariant PASSED   [ 25%]
+tests/test_dashboard.py::test_dashboard_root_serves_html PASSED          [ 27%]
+tests/test_dashboard.py::test_dashboard_static_css_accessible PASSED     [ 29%]
+tests/test_dashboard.py::test_dashboard_static_js_accessible PASSED      [ 31%]
+tests/test_dashboard.py::test_developer_docs_and_health_remain_accessible PASSED [ 33%]
+tests/test_history.py::test_history_all_types_and_ordering PASSED        [ 35%]
+tests/test_history.py::test_history_filter_by_type PASSED                [ 37%]
+tests/test_history.py::test_history_pagination PASSED                    [ 39%]
+tests/test_history.py::test_history_empty_results PASSED                 [ 41%]
+tests/test_history.py::test_history_account_not_found PASSED             [ 43%]
+tests/test_history.py::test_history_invalid_query_params[page=0] PASSED  [ 45%]
+tests/test_history.py::test_history_invalid_query_params[page=-1] PASSED [ 47%]
+tests/test_history.py::test_history_invalid_query_params[limit=0] PASSED [ 50%]
+tests/test_history.py::test_history_invalid_query_params[limit=101] PASSED [ 52%]
+tests/test_history.py::test_history_invalid_query_params[type=invalid_type] PASSED [ 54%]
+tests/test_transactions.py::test_credit_transaction_success PASSED       [ 56%]
+tests/test_transactions.py::test_debit_transaction_success PASSED        [ 58%]
+tests/test_transactions.py::test_debit_insufficient_balance_rejected PASSED [ 60%]
+tests/test_transactions.py::test_transaction_nonexistent_account PASSED  [ 62%]
+tests/test_transactions.py::test_duplicate_reference_same_account_rejected PASSED [ 64%]
+tests/test_transactions.py::test_duplicate_reference_different_accounts_accepted PASSED [ 66%]
+tests/test_transactions.py::test_reject_invalid_amounts[0.00] PASSED     [ 68%]
+tests/test_transactions.py::test_reject_invalid_amounts[-50.00] PASSED   [ 70%]
+tests/test_transactions.py::test_reject_invalid_amounts[0] PASSED        [ 72%]
+tests/test_transactions.py::test_reject_invalid_amounts[-0.01] PASSED    [ 75%]
+tests/test_transactions.py::test_reject_invalid_amounts[100.555] PASSED  [ 77%]
+tests/test_transactions.py::test_reject_invalid_amounts[abc] PASSED      [ 79%]
+tests/test_transactions.py::test_reject_invalid_amounts[NaN] PASSED      [ 81%]
+tests/test_transactions.py::test_reject_invalid_amounts[Infinity] PASSED [ 83%]
+tests/test_transactions.py::test_reject_invalid_amounts[] PASSED         [ 85%]
+tests/test_transactions.py::test_reject_invalid_transaction_types[deposit] PASSED [ 87%]
+tests/test_transactions.py::test_reject_invalid_transaction_types[withdrawal] PASSED [ 89%]
+tests/test_transactions.py::test_reject_invalid_transaction_types[transfer] PASSED [ 91%]
+tests/test_transactions.py::test_reject_invalid_transaction_types[CREDIT] PASSED [ 93%]
+tests/test_transactions.py::test_reject_invalid_transaction_types[] PASSED [ 95%]
+tests/test_transactions.py::test_transaction_immutability_no_mutations_allowed PASSED [ 97%]
+tests/test_transactions.py::test_atomic_rollback_on_commit_failure PASSED [100%]
 
-- [OWASP REST Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html)
-- [OWASP API Security Top 10](https://owasp.org/www-project-api-security/)
-- [OWASP Input Validation Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html)
-- [OWASP SQL Injection Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)
-- [OWASP Database Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Database_Security_Cheat_Sheet.html)
+======================== 48 passed, 1 warning in 2.43s =========================
+```
+```
 
-## 9. Tests
+---
 
-Tests must run against PostgreSQL for the transaction and concurrency guarantees. Use a dedicated test database and isolate state between tests. Do not run tests against a personal or production database.
+## 10. Known Scope Limitations
 
-### Account tests
-
-- Create an account and verify generated ID, timestamp and zero balance.
-- Reject blank/missing names.
-- Reject a client-supplied balance or unsupported account-creation fields.
-
-### Transaction tests
-
-- Credit increases balance correctly.
-- Debit decreases balance correctly when sufficient funds exist.
-- Debit exceeding the balance is rejected and leaves balance unchanged.
-- Reject missing accounts, invalid types, zero/negative amounts, too many decimal places, over-precision amounts, missing descriptions and missing references.
-- A repeated reference on the same account is rejected with no second row and no additional balance change.
-- The same reference works on another account.
-- On an induced failure between insert and commit, neither the ledger entry nor balance change remains committed.
-- Ensure no transaction update/delete route is exposed.
-
-### Concurrency tests
-
-- Concurrent debit requests against one account cannot drive the balance negative.
-- Concurrent submissions using the same reference produce at most one committed transaction and one balance change.
-- After concurrent operations, the account balance equals credits minus debits in the stored transaction history.
-
-### History tests
-
-- No type filter includes both credit and debit transactions.
-- Type filters return only the selected type.
-- Pagination metadata is correct, including an empty result set.
-- Results are ordered by `created_at DESC, id DESC`.
-- Invalid page, limit and filter values are rejected.
-
-### API quality tests
-
-- Error responses match the documented envelope.
-- Internal exception details and secrets are not exposed.
-- `/docs` and the OpenAPI schema expose the expected endpoints and contract.
-
-## 10. Reviewer quick-start expectations
-
-The final repository README should put these items near the top:
-
-1. One-sentence project summary and a concise architecture sketch.
-2. Prerequisites and the exact command to start locally, targeted as `docker compose up --build`.
-3. The local Swagger URL: `http://localhost:8000/docs`.
-4. The exact command to run tests and the expected passing result.
-5. A short end-to-end example: create account, credit `1000.00`, debit `300.00`, read balance `700.00`, then attempt an overdraw and verify that balance remains `700.00`.
-6. Links to API documentation, assumptions and this design document.
-7. A visible note that this is an assessment/demo ledger without implemented end-user authentication or real payment processing.
-
-The Compose and README implementation must be tested from a clean clone/folder, not merely assumed to work.
-
-## 11. Implementation sequence
-
-1. Scaffold project, configuration, migrations and Docker Compose for PostgreSQL.
-2. Implement data models and constraints.
-3. Implement error schemas and account creation.
-4. Implement atomic credit/debit service and transaction endpoint.
-5. Implement balance and filtered/paginated history endpoints.
-6. Add core functional and error-path tests.
-7. Add PostgreSQL-backed concurrency and rollback tests.
-8. Add docs, sample workflow and optionally a Postman collection.
-9. Verify quick-start from a clean environment; check Git status for secrets; run formatting, tests and linting.
-10. Consider the optional transfer feature only if all required behaviors are tested and time remains.
-
-## 12. Open implementation choices
-
-These choices can be finalized during implementation without changing the product scope:
-
-- Whether transaction `type` uses a PostgreSQL enum or a `VARCHAR` with a `CHECK` constraint. Prefer the option easiest to maintain through Alembic migrations.
-- Whether a lightweight repository module improves clarity. Avoid it if it only duplicates service methods.
-- Exact compatible dependency patch versions, to be pinned after installation and testing.
-- The exact Compose/test command layout, provided the README is reproducible and integration tests use PostgreSQL.
+1. **Simulated Accounting:** The ledger records transactions and balances internally. No external payment networks (SWIFT, ACH, UPI, FedNow) or bank partner rails are integrated.
+2. **Demonstration Authentication:** As per the assignment specifications, API routes are unauthenticated. In a production banking deployment, routes must be secured behind mutual TLS, OAuth2/OIDC, and resource-level access control.
+3. **Transaction Immutability:** Ledger transactions are append-only. There are no `PUT`, `PATCH`, or `DELETE` endpoints for transactions. Erroneous entries must be corrected through reversing transactions (credit/debit).
