@@ -27,7 +27,8 @@ def resolve_request_path(scope):
             scope["query_string"] = urllib.parse.urlencode(params, doseq=True).encode("utf-8")
 
     # 2. Check Vercel proxy headers (x-matched-path, x-vercel-matched-path, etc.)
-    if not resolved_path:
+    if not resolved_path or resolved_path in ["/$1", "/:match*", "$1", ":match*"]:
+        resolved_path = None
         for hk in [
             b"x-matched-path",
             b"x-vercel-matched-path",
@@ -41,9 +42,11 @@ def resolve_request_path(scope):
                 parsed = urllib.parse.urlsplit(decoded)
                 qs = urllib.parse.parse_qs(parsed.query)
                 if "__url__" in qs and qs["__url__"]:
-                    resolved_path = qs["__url__"][0]
-                    break
-                elif parsed.path and not any(
+                    candidate = qs["__url__"][0]
+                    if candidate not in ["/$1", "/:match*", "$1", ":match*"]:
+                        resolved_path = candidate
+                        break
+                if parsed.path and not any(
                     parsed.path == p or parsed.path.startswith(p + "/")
                     for p in ["/api/index.py", "/api/index", "/api"]
                 ):
@@ -51,7 +54,7 @@ def resolve_request_path(scope):
                     break
 
     # 3. Fallback to scope path normalization
-    if not resolved_path:
+    if not resolved_path or resolved_path in ["/$1", "/:match*", "$1", ":match*"]:
         raw_path = scope.get("path", "")
         for p in ["/api/index.py", "/api/index", "/api"]:
             if raw_path == p or raw_path.startswith(p + "/"):
@@ -83,7 +86,17 @@ async def app(scope, receive, send):
     ASGI entrypoint for Vercel serverless deployment.
     """
     if scope["type"] == "http":
-        scope["path"] = resolve_request_path(scope)
+        resolved = resolve_request_path(scope)
+        scope["path"] = resolved
 
-    await fastapi_app(scope, receive, send)
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                resp_headers = list(message.get("headers", []))
+                resp_headers.append((b"x-debug-resolved", resolved.encode("utf-8")))
+                message["headers"] = resp_headers
+            await send(message)
+
+        await fastapi_app(scope, receive, send_wrapper)
+    else:
+        await fastapi_app(scope, receive, send)
 
