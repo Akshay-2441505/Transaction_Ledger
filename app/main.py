@@ -5,6 +5,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import urllib.parse
+from starlette.types import ASGIApp, Receive, Scope, Send
+
 from app.api.accounts import router as accounts_router
 from app.api.health import router as health_router
 from app.api.transactions import router as transactions_router
@@ -22,6 +25,45 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+
+class VercelRewriterMiddleware:
+    """
+    ASGI middleware for Vercel serverless deployments.
+    Extracts the genuine requested route path forwarded via Vercel's rewrite query parameter.
+    """
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "http":
+            query_bytes = scope.get("query_string", b"")
+            query_str = query_bytes.decode("utf-8", errors="ignore")
+            if "__url__=" in query_str:
+                params = urllib.parse.parse_qs(query_str)
+                if "__url__" in params and params["__url__"]:
+                    raw_url = params["__url__"][0]
+                    # Strip out any literal placeholder artifacts
+                    if raw_url not in ["/$1", "/:match*", "$1", ":match*"]:
+                        if not raw_url.startswith("/"):
+                            raw_url = "/" + raw_url
+                        while "//" in raw_url:
+                            raw_url = raw_url.replace("//", "/")
+                        scope["path"] = raw_url
+                        del params["__url__"]
+                        if "match" in params:
+                            del params["match"]
+                        scope["query_string"] = urllib.parse.urlencode(
+                            params, doseq=True
+                        ).encode("utf-8")
+            elif scope.get("path") in ["/api/index.py", "/api/index", "/api"]:
+                scope["path"] = "/"
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(VercelRewriterMiddleware)
 
 
 @app.exception_handler(AppException)
@@ -112,15 +154,7 @@ if STATIC_DIR.exists():
 @app.get("/api/", include_in_schema=False)
 @app.get("/api/index", include_in_schema=False)
 @app.get("/api/index.py", include_in_schema=False)
-def serve_dashboard(request: Request):
-    if "debug" in request.query_params:
-        return JSONResponse(
-            content={
-                "scope_path": request.scope.get("path"),
-                "query_string": request.scope.get("query_string", b"").decode("utf-8", errors="ignore"),
-                "headers": dict(request.headers),
-            }
-        )
+def serve_dashboard():
     candidates = [
         STATIC_DIR / "index.html",
         Path("static/index.html"),

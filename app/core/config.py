@@ -26,8 +26,8 @@ class Settings(BaseSettings):
         elif v.startswith("postgresql://") and not v.startswith("postgresql+"):
             v = "postgresql+psycopg://" + v[len("postgresql://") :]
 
-        # If it's a remote connection (e.g. Supabase, AWS RDS) and sslmode is not set, require SSL
-        if "localhost" not in v and "127.0.0.1" not in v and "sslmode=" not in v:
+        # If connecting to hosted Supabase / cloud database and sslmode is not set, require SSL
+        if any(cloud in v for cloud in ["supabase.co", "supabase.com", "neon.tech", "pooler.supabase.com"]) and "sslmode=" not in v:
             delimiter = "&" if "?" in v else "?"
             v = f"{v}{delimiter}sslmode=require"
 
