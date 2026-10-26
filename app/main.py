@@ -108,6 +108,10 @@ if STATIC_DIR.exists():
 
 
 @app.get("/", include_in_schema=False)
+@app.get("/api", include_in_schema=False)
+@app.get("/api/", include_in_schema=False)
+@app.get("/api/index", include_in_schema=False)
+@app.get("/api/index.py", include_in_schema=False)
 def serve_dashboard():
     candidates = [
         STATIC_DIR / "index.html",
