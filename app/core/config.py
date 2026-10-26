@@ -22,9 +22,15 @@ class Settings(BaseSettings):
             return v
         # Normalize standard postgres:// or postgresql:// to postgresql+psycopg://
         if v.startswith("postgres://"):
-            return "postgresql+psycopg://" + v[len("postgres://") :]
-        if v.startswith("postgresql://") and not v.startswith("postgresql+"):
-            return "postgresql+psycopg://" + v[len("postgresql://") :]
+            v = "postgresql+psycopg://" + v[len("postgres://") :]
+        elif v.startswith("postgresql://") and not v.startswith("postgresql+"):
+            v = "postgresql+psycopg://" + v[len("postgresql://") :]
+
+        # If it's a remote connection (e.g. Supabase, AWS RDS) and sslmode is not set, require SSL
+        if "localhost" not in v and "127.0.0.1" not in v and "sslmode=" not in v:
+            delimiter = "&" if "?" in v else "?"
+            v = f"{v}{delimiter}sslmode=require"
+
         return v
 
     model_config = SettingsConfigDict(

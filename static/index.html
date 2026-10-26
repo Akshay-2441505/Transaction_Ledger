@@ -1080,6 +1080,11 @@ body {
             <span id="apiStatusText">Checking API...</span>
           </div>
 
+          <a href="/docs" target="_blank" rel="noopener noreferrer" class="btn-icon-refresh" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; color:#10b981; border-color:rgba(16,185,129,0.3); font-weight:600;" title="Open Interactive OpenAPI Swagger Docs">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            <span>Swagger UI</span>
+          </a>
+
           <button id="btnRefreshAll" class="btn-icon-refresh" title="Refresh live account balance & history">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
             <span>Sync</span>
@@ -1611,7 +1616,21 @@ async function checkHealth() {
     const res = await fetch("/health");
     if (res.ok) {
       elements.apiStatusDot.style.backgroundColor = "var(--accent-green)";
-      elements.apiStatusText.textContent = "API Online";
+      elements.apiStatusText.textContent = "API Live";
+
+      // Probe database connectivity
+      try {
+        const dbRes = await fetch("/health/db");
+        if (dbRes.ok) {
+          elements.apiStatusDot.style.backgroundColor = "var(--accent-green)";
+          elements.apiStatusText.textContent = "API & DB Live";
+        } else {
+          elements.apiStatusDot.style.backgroundColor = "var(--accent-amber)";
+          elements.apiStatusText.textContent = "DB Offline";
+        }
+      } catch {
+        elements.apiStatusText.textContent = "API Live (DB Unknown)";
+      }
     } else {
       elements.apiStatusDot.style.backgroundColor = "var(--accent-red)";
       elements.apiStatusText.textContent = "API Error";
