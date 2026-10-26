@@ -1,6 +1,6 @@
-# Transaction Ledger API
+# Transaction Ledger API & Financial Dashboard
 
-A reliable, atomic REST API for managing accounts and immutable simulated financial transactions, backed by PostgreSQL and FastAPI.
+A reliable, atomic REST API and browser-based financial dashboard for managing accounts and immutable simulated financial transactions, backed by PostgreSQL and FastAPI.
 
 ---
 
@@ -10,21 +10,25 @@ A reliable, atomic REST API for managing accounts and immutable simulated financ
 
 ---
 
-## Architecture Sketch
+## 🎨 System & Architecture Sketch
 
 ```text
-API Client (Swagger UI / curl / Postman)
+Browser Client / Swagger UI / curl / Postman
                  │
                  ▼
-         FastAPI Route Layer (app/api)
+     FastAPI Web Server (app/main.py)
+     ├── GET /              -> Financial Dashboard (HTML/CSS/JS)
+     ├── GET /docs          -> Swagger UI Documentation
+     ├── GET /health        -> Health Check
+     └── /accounts/...      -> REST API Endpoints
                  │
                  ▼
        Pydantic Validation (app/schemas)
                  │
                  ▼
    Service / Invariant Enforcement (app/services)
-   - SELECT ... FOR UPDATE (pessimistic lock)
-   - In-memory Decimal verification
+   - SELECT ... FOR UPDATE (pessimistic row lock)
+   - Decimal precision & non-negative balance checks
                  │
                  ▼
        SQLAlchemy Unit of Work (app/db)
@@ -32,7 +36,7 @@ API Client (Swagger UI / curl / Postman)
                  ▼
       PostgreSQL 16 Database
       - accounts (balance >= 0)
-      - transactions (immutable, unique per account_id + ref_id)
+      - transactions (immutable, unique per account_id + reference_id)
 ```
 
 ---
@@ -40,7 +44,7 @@ API Client (Swagger UI / curl / Postman)
 ## 🚀 Quick Start (Docker Compose)
 
 ### Prerequisites
-- Docker & Docker Compose plugin (Docker Desktop or Engine)
+- Docker & Docker Compose plugin (Docker Desktop or Docker Engine)
 
 ### Launch Service
 Run the following single command from the project root:
@@ -51,15 +55,40 @@ docker compose up --build
 
 The database container will start, run health checks, apply Alembic migrations automatically, and start the FastAPI application at port `8000`.
 
+- **Web Financial Dashboard:** [`http://localhost:8000/`](http://localhost:8000/)
 - **Interactive API Documentation (Swagger UI):** [`http://localhost:8000/docs`](http://localhost:8000/docs)
+- **ReDoc Documentation:** [`http://localhost:8000/redoc`](http://localhost:8000/redoc)
 - **OpenAPI Schema:** [`http://localhost:8000/openapi.json`](http://localhost:8000/openapi.json)
 - **Health Check:** [`http://localhost:8000/health`](http://localhost:8000/health)
 
 ---
 
+## 📊 Browser Dashboard Features
+
+The dashboard is served directly from the FastAPI application using vanilla HTML5, CSS3, and modern JavaScript:
+
+1. **Overview View:**
+   - Real-time live stored account balance in INR (`₹`).
+   - Total credits (inflows) and debits (outflows) calculated honestly from actual ledger records.
+   - Total transaction count from API pagination metadata.
+   - Compact activity visualization derived from real transaction volume.
+   - Recent transaction activity table.
+
+2. **Accounts View:**
+   - Account creation form (`POST /accounts`). Initial balance is always ₹0.00 (client-supplied balance is rejected by the backend).
+   - Session account switcher and direct UUID lookup input.
+
+3. **Transactions View:**
+   - Intuitive Credit / Debit transaction execution form.
+   - Built-in "Auto Generate" unique reference button to easily avoid duplicate reference conflicts.
+   - Inline feedback for validation errors (`422`), insufficient balance (`409`), and duplicate references (`409`).
+   - Paginated transaction history with type filtering (`All`, `Credits`, `Debits`) and deterministic ordering (`created_at DESC, id DESC`).
+
+---
+
 ## 🧪 Running Automated Tests
 
-All tests run directly against PostgreSQL, asserting row-level locking, race conditions, idempotency, and aggregate balance invariants.
+All tests run directly against PostgreSQL, asserting row-level locking, race conditions, idempotency, dashboard route serving, and aggregate balance invariants.
 
 ### In Docker Compose
 ```bash
@@ -73,9 +102,9 @@ docker compose run --rm api pytest -v
 pytest -v
 ```
 
-**Expected Result:**
+**Actual Passing Result:**
 ```text
-======================== 44 passed in ~3.0s ========================
+======================== 48 passed in ~2.5s ========================
 ```
 
 ---
@@ -250,8 +279,8 @@ curl -s "http://localhost:8000/accounts/$ACCOUNT_ID/transactions?page=1&limit=20
 
 ## 📁 Key Design Documentation
 
-- [`docs/PRD.md`](./docs/PRD.md): Product requirements document.
-- [`docs/DESIGN.md`](./docs/DESIGN.md): Technical architecture and database schema.
-- [`docs/TECH_STACK.md`](./docs/TECH_STACK.md): Technology decisions and concurrency rationale.
-- [`docs/ASSUMPTIONS.md`](./docs/ASSUMPTIONS.md): Assumptions regarding currency, idempotency, and bounds.
-- [`postman/collection.json`](./postman/collection.json): Importable Postman test collection.
+- [`docs/PRD.md`](docs/PRD.md): Product requirements document.
+- [`docs/DESIGN.md`](docs/DESIGN.md): Technical architecture and database schema.
+- [`docs/TECH_STACK.md`](docs/TECH_STACK.md): Technology decisions and concurrency rationale.
+- [`docs/ASSUMPTIONS.md`](docs/ASSUMPTIONS.md): Assumptions regarding currency, idempotency, and bounds.
+- [`postman/collection.json`](postman/collection.json): Importable Postman test collection.

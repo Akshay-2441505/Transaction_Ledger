@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.accounts import router as accounts_router
 from app.api.health import router as health_router
@@ -98,3 +100,24 @@ async def generic_exception_handler(request: Request, exc: Exception):
 app.include_router(health_router)
 app.include_router(accounts_router)
 app.include_router(transactions_router)
+
+# Mount static directory and serve browser dashboard
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def serve_dashboard():
+    index_file = STATIC_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": {
+                "code": "RESOURCE_NOT_FOUND",
+                "message": "Dashboard UI not found.",
+            }
+        },
+    )
