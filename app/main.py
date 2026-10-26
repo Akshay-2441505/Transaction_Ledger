@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.accounts import router as accounts_router
@@ -109,9 +109,14 @@ if STATIC_DIR.exists():
 
 @app.get("/", include_in_schema=False)
 def serve_dashboard():
-    index_file = STATIC_DIR / "index.html"
-    if index_file.exists():
-        return FileResponse(str(index_file))
+    candidates = [
+        STATIC_DIR / "index.html",
+        Path("static/index.html"),
+        Path(__file__).resolve().parent / "static" / "index.html",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return HTMLResponse(content=candidate.read_text(encoding="utf-8"))
     return JSONResponse(
         status_code=404,
         content={

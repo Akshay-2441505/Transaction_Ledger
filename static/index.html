@@ -5,7 +5,1024 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Transaction Ledger — Financial Dashboard</title>
   <meta name="description" content="A reliable, atomic browser-based dashboard for managing simulated financial ledger accounts and transactions.">
-  <link rel="stylesheet" href="/static/css/dashboard.css">
+  <style>
+:root {
+  --bg-main: #0b0e14;
+  --bg-sidebar: #10141d;
+  --bg-card: #161c28;
+  --bg-card-hover: #1c2333;
+  --bg-card-subtle: #121722;
+  --border-color: #242c3d;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+
+  --accent-green: #10b981;
+  --accent-green-hover: #059669;
+  --accent-green-bg: rgba(16, 185, 129, 0.12);
+  --accent-green-border: rgba(16, 185, 129, 0.3);
+
+  --accent-red: #f43f5e;
+  --accent-red-bg: rgba(244, 63, 94, 0.12);
+  --accent-red-border: rgba(244, 63, 94, 0.3);
+
+  --accent-blue: #38bdf8;
+  --accent-blue-bg: rgba(56, 189, 248, 0.12);
+
+  --text-main: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --transition: all 0.2s ease-in-out;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.5;
+  min-height: 100vh;
+  display: flex;
+  overflow-x: hidden;
+}
+
+/* Layout */
+.app-container {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 270px;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1.25rem;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  padding-left: 0.5rem;
+}
+
+.brand-icon {
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(135deg, #10b981 0%, #047857 100%);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.2rem;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.brand-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.02em;
+}
+
+.brand-tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-green);
+  background: var(--accent-green-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.account-badge-sidebar {
+  background-color: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.85rem;
+  margin-bottom: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.account-badge-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.account-badge-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-badge-id {
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  padding-left: 0.5rem;
+}
+
+.nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  list-style: none;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  border: 1px solid transparent;
+}
+
+.nav-item:hover {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+}
+
+.nav-item.active {
+  background: linear-gradient(90deg, var(--accent-green-bg) 0%, rgba(16, 185, 129, 0.04) 100%);
+  color: var(--accent-green);
+  border-color: var(--accent-green-border);
+  font-weight: 600;
+}
+
+.nav-item svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.docs-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.9rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: var(--transition);
+}
+
+.docs-link:hover {
+  color: var(--accent-green);
+  border-color: var(--accent-green-border);
+}
+
+/* Main Content Area */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background-color: var(--bg-main);
+}
+
+/* Topbar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border-color);
+  background-color: rgba(16, 20, 29, 0.75);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 9;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.breadcrumb-separator {
+  color: var(--border-color);
+}
+
+.breadcrumb-current {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  background-color: var(--accent-green-bg);
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green-border);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  background-color: var(--accent-green);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-green);
+}
+
+.btn-icon-refresh {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  padding: 0.45rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-icon-refresh:hover {
+  color: var(--text-main);
+  border-color: var(--accent-green);
+}
+
+/* Views Container */
+.views-wrapper {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 1300px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.view-section {
+  display: none;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.view-section.active {
+  display: flex;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.section-subtitle {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin-top: 0.2rem;
+}
+
+/* Info Banner */
+.info-banner {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.08) 0%, rgba(56, 189, 248, 0.05) 100%);
+  border: 1px solid var(--accent-green-border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.info-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.info-banner-icon {
+  color: var(--accent-green);
+  flex-shrink: 0;
+}
+
+/* Metric Cards Grid */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 1.25rem;
+}
+
+.metric-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.metric-title {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.metric-pill {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.pill-green {
+  background: var(--accent-green-bg);
+  color: var(--accent-green);
+}
+
+.pill-blue {
+  background: var(--accent-blue-bg);
+  color: var(--accent-blue);
+}
+
+.pill-red {
+  background: var(--accent-red-bg);
+  color: var(--accent-red);
+}
+
+.metric-value-container {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.metric-currency {
+  font-size: 1.4rem;
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.metric-value-main {
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  line-height: 1.1;
+}
+
+.metric-footer {
+  margin-top: 1rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Two-column layout */
+.dashboard-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+
+/* Forms & Panels */
+.card-panel {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 1rem;
+}
+
+.panel-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.panel-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+/* Form inputs */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.form-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.input-with-hint {
+  display: flex;
+  justify-content: space-between;
+}
+
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.form-control {
+  background-color: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: var(--transition);
+  outline: none;
+}
+
+.form-control:focus {
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+
+.form-control::placeholder {
+  color: var(--text-muted);
+}
+
+.input-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.input-addon {
+  display: flex;
+  align-items: center;
+  padding: 0 0.9rem;
+  background-color: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-right: none;
+  border-top-left-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.input-group .form-control {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  flex: 1;
+}
+
+.input-action-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-secondary-action {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  padding: 0 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+
+.btn-secondary-action:hover {
+  color: var(--text-main);
+  border-color: var(--accent-green);
+}
+
+/* Type Toggle */
+.type-toggle-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  background: var(--bg-card-subtle);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.type-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.type-toggle-btn.active.credit {
+  background-color: var(--accent-green);
+  color: #0b0e14;
+}
+
+.type-toggle-btn.active.debit {
+  background-color: var(--accent-red);
+  color: #fff;
+}
+
+/* Primary Button */
+.btn-primary {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1.25rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: var(--transition);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+}
+
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.94;
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Tables */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.88rem;
+}
+
+.data-table th {
+  padding: 0.85rem 1rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-card-subtle);
+}
+
+.data-table td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  vertical-align: middle;
+}
+
+.data-table tr:hover td {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.tx-amount {
+  font-weight: 600;
+  font-family: monospace;
+  font-size: 0.95rem;
+}
+
+.tx-credit {
+  color: var(--accent-green);
+}
+
+.tx-debit {
+  color: var(--accent-red);
+}
+
+.tx-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tx-badge.credit {
+  background: var(--accent-green-bg);
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green-border);
+}
+
+.tx-badge.debit {
+  background: var(--accent-red-bg);
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red-border);
+}
+
+.tx-ref-badge {
+  font-family: monospace;
+  font-size: 0.78rem;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.tx-timestamp {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Filter pills */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-pill {
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.filter-pill:hover {
+  color: var(--text-main);
+  border-color: var(--accent-green);
+}
+
+.filter-pill.active {
+  background: var(--accent-green-bg);
+  color: var(--accent-green);
+  border-color: var(--accent-green-border);
+  font-weight: 600;
+}
+
+/* Pagination */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-page {
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-page:hover:not(:disabled) {
+  color: var(--text-main);
+  border-color: var(--accent-green);
+}
+
+.btn-page:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Activity Visualization Chart */
+.chart-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.bar-chart-honest {
+  height: 160px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chart-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.chart-bar-fill {
+  width: 100%;
+  max-width: 28px;
+  border-radius: 4px 4px 0 0;
+  transition: height 0.4s ease;
+  min-height: 4px;
+}
+
+.chart-bar-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.legend-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Empty & Loading States */
+.empty-state {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.empty-state-icon {
+  width: 44px;
+  height: 44px;
+  background: var(--bg-card-subtle);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+/* Feedback / Toast */
+.toast-container {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  z-index: 9999;
+  max-width: 400px;
+  width: calc(100% - 3rem);
+}
+
+.toast {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  animation: slideIn 0.25s ease-out;
+}
+
+.toast.success {
+  border-left: 4px solid var(--accent-green);
+}
+
+.toast.error {
+  border-left: 4px solid var(--accent-red);
+}
+
+.toast.info {
+  border-left: 4px solid var(--accent-blue);
+}
+
+.toast-content {
+  flex: 1;
+}
+
+.toast-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 0.15rem;
+}
+
+.toast-message {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.toast-close:hover {
+  color: var(--text-main);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Spinner */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-container {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    padding: 1rem;
+  }
+  .views-wrapper {
+    padding: 1.25rem;
+  }
+}
+
+</style>
 </head>
 <body>
   <div class="app-container">
@@ -375,6 +1392,707 @@
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="/static/js/dashboard.js"></script>
+  <script>
+/**
+ * Transaction Ledger API - Financial Dashboard Client
+ * Interacts directly with the same-origin FastAPI backend endpoints.
+ */
+
+// Application State
+const state = {
+  activeAccountId: localStorage.getItem("active_account_id") || null,
+  activeAccountName: localStorage.getItem("active_account_name") || "No Account Selected",
+  recentAccounts: JSON.parse(localStorage.getItem("recent_accounts") || "[]"),
+  currentFilter: null, // null | 'credit' | 'debit'
+  currentPage: 1,
+  limit: 10,
+  totalPages: 0,
+  totalRecords: 0,
+  isSubmitting: false,
+};
+
+// DOM Elements
+const elements = {
+  // Navigation
+  navItems: document.querySelectorAll(".nav-item"),
+  viewSections: document.querySelectorAll(".view-section"),
+  breadcrumbCurrent: document.getElementById("breadcrumbCurrent"),
+  apiStatusDot: document.getElementById("apiStatusDot"),
+  apiStatusText: document.getElementById("apiStatusText"),
+  btnRefreshAll: document.getElementById("btnRefreshAll"),
+
+  // Sidebar badge
+  sidebarAccountName: document.getElementById("sidebarAccountName"),
+  sidebarAccountId: document.getElementById("sidebarAccountId"),
+
+  // Overview metrics
+  metricBalance: document.getElementById("metricBalance"),
+  metricTotalRecords: document.getElementById("metricTotalRecords"),
+  metricCreditsTotal: document.getElementById("metricCreditsTotal"),
+  metricDebitsTotal: document.getElementById("metricDebitsTotal"),
+  recentActivityTableBody: document.getElementById("recentActivityTableBody"),
+  recentActivityEmpty: document.getElementById("recentActivityEmpty"),
+  chartContainer: document.getElementById("chartContainer"),
+
+  // Account Management
+  formCreateAccount: document.getElementById("formCreateAccount"),
+  inputAccountHolderName: document.getElementById("inputAccountHolderName"),
+  btnSubmitCreateAccount: document.getElementById("btnSubmitCreateAccount"),
+  accountSelectDropdown: document.getElementById("accountSelectDropdown"),
+  inputManualAccountId: document.getElementById("inputManualAccountId"),
+  btnLoadManualAccount: document.getElementById("btnLoadManualAccount"),
+  activeAccountDetailsCard: document.getElementById("activeAccountDetailsCard"),
+
+  // Credit / Debit Form
+  formTransaction: document.getElementById("formTransaction"),
+  toggleCredit: document.getElementById("toggleCredit"),
+  toggleDebit: document.getElementById("toggleDebit"),
+  inputTxType: document.getElementById("inputTxType"),
+  inputTxAmount: document.getElementById("inputTxAmount"),
+  inputTxDescription: document.getElementById("inputTxDescription"),
+  inputTxReference: document.getElementById("inputTxReference"),
+  btnGenerateRef: document.getElementById("btnGenerateRef"),
+  btnSubmitTransaction: document.getElementById("btnSubmitTransaction"),
+  txFormAccountWarning: document.getElementById("txFormAccountWarning"),
+
+  // Transaction History View
+  historyTableBody: document.getElementById("historyTableBody"),
+  historyEmptyState: document.getElementById("historyEmptyState"),
+  filterAll: document.getElementById("filterAll"),
+  filterCredit: document.getElementById("filterCredit"),
+  filterDebit: document.getElementById("filterDebit"),
+  btnPrevPage: document.getElementById("btnPrevPage"),
+  btnNextPage: document.getElementById("btnNextPage"),
+  pageIndicator: document.getElementById("pageIndicator"),
+  paginationCountInfo: document.getElementById("paginationCountInfo"),
+
+  // Toast Container
+  toastContainer: document.getElementById("toastContainer"),
+};
+
+// Utilities
+function formatINR(amount) {
+  const num = parseFloat(amount);
+  if (isNaN(num)) return "₹0.00";
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+
+function formatDate(isoString) {
+  if (!isoString) return "-";
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return isoString;
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function showToast(title, message, type = "info") {
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+
+  const content = document.createElement("div");
+  content.className = "toast-content";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "toast-title";
+  titleEl.textContent = title;
+
+  const msgEl = document.createElement("div");
+  msgEl.className = "toast-message";
+  msgEl.textContent = message;
+
+  content.appendChild(titleEl);
+  content.appendChild(msgEl);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "toast-close";
+  closeBtn.innerHTML = "&times;";
+  closeBtn.onclick = () => toast.remove();
+
+  toast.appendChild(content);
+  toast.appendChild(closeBtn);
+
+  elements.toastContainer.appendChild(toast);
+
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.remove();
+    }
+  }, 5000);
+}
+
+// Navigation Tab Switcher
+function switchTab(targetViewId) {
+  elements.viewSections.forEach((section) => {
+    section.classList.toggle("active", section.id === targetViewId);
+  });
+
+  elements.navItems.forEach((nav) => {
+    const isTarget = nav.dataset.view === targetViewId;
+    nav.classList.toggle("active", isTarget);
+    if (isTarget) {
+      const label = nav.querySelector("span") ? nav.querySelector("span").textContent : "Overview";
+      elements.breadcrumbCurrent.textContent = label;
+    }
+  });
+
+  // If switched to transactions or overview, refresh active account data
+  if (state.activeAccountId) {
+    fetchAccountData();
+  }
+}
+
+// Account Switcher and Storage
+function setActiveAccount(id, name) {
+  state.activeAccountId = id;
+  state.activeAccountName = name || `Account (${id.substring(0, 8)}...)`;
+
+  localStorage.setItem("active_account_id", state.activeAccountId);
+  localStorage.setItem("active_account_name", state.activeAccountName);
+
+  // Update recent accounts list (max 10)
+  const existingIdx = state.recentAccounts.findIndex((acc) => acc.id === id);
+  if (existingIdx !== -1) {
+    state.recentAccounts[existingIdx].name = state.activeAccountName;
+  } else {
+    state.recentAccounts.unshift({ id, name: state.activeAccountName });
+    if (state.recentAccounts.length > 10) {
+      state.recentAccounts.pop();
+    }
+  }
+  localStorage.setItem("recent_accounts", JSON.stringify(state.recentAccounts));
+
+  renderAccountBadges();
+  fetchAccountData();
+}
+
+function renderAccountBadges() {
+  if (state.activeAccountId) {
+    elements.sidebarAccountName.textContent = state.activeAccountName;
+    elements.sidebarAccountId.textContent = state.activeAccountId;
+    elements.sidebarAccountId.title = state.activeAccountId;
+    if (elements.txFormAccountWarning) {
+      elements.txFormAccountWarning.style.display = "none";
+    }
+  } else {
+    elements.sidebarAccountName.textContent = "No Account Selected";
+    elements.sidebarAccountId.textContent = "Create or select an account";
+    if (elements.txFormAccountWarning) {
+      elements.txFormAccountWarning.style.display = "block";
+    }
+  }
+
+  // Populate Dropdown
+  elements.accountSelectDropdown.innerHTML = '<option value="">-- Choose from recent accounts --</option>';
+  state.recentAccounts.forEach((acc) => {
+    const opt = document.createElement("option");
+    opt.value = acc.id;
+    opt.textContent = `${acc.name} (${acc.id.substring(0, 8)}...)`;
+    if (acc.id === state.activeAccountId) {
+      opt.selected = true;
+    }
+    elements.accountSelectDropdown.appendChild(opt);
+  });
+}
+
+// Backend API Service
+async function checkHealth() {
+  try {
+    const res = await fetch("/health");
+    if (res.ok) {
+      elements.apiStatusDot.style.backgroundColor = "var(--accent-green)";
+      elements.apiStatusText.textContent = "API Online";
+    } else {
+      elements.apiStatusDot.style.backgroundColor = "var(--accent-red)";
+      elements.apiStatusText.textContent = "API Error";
+    }
+  } catch (err) {
+    elements.apiStatusDot.style.backgroundColor = "var(--accent-red)";
+    elements.apiStatusText.textContent = "Disconnected";
+  }
+}
+
+async function fetchAccountData() {
+  if (!state.activeAccountId) return;
+
+  // 1. Fetch balance
+  try {
+    const balRes = await fetch(`/accounts/${state.activeAccountId}/balance`);
+    if (balRes.ok) {
+      const balData = await balRes.json();
+      elements.metricBalance.textContent = formatINR(balData.balance);
+    } else if (balRes.status === 404) {
+      showToast("Account Not Found", "The currently selected account was not found on the server.", "error");
+      elements.metricBalance.textContent = "₹0.00";
+    }
+  } catch (err) {
+    console.error("Failed to fetch balance:", err);
+  }
+
+  // 2. Fetch transactions for history & overview
+  await fetchTransactionHistory();
+}
+
+async function fetchTransactionHistory() {
+  if (!state.activeAccountId) {
+    renderHistoryTable([], { total_records: 0, total_pages: 0, page: 1 });
+    return;
+  }
+
+  let url = `/accounts/${state.activeAccountId}/transactions?page=${state.currentPage}&limit=${state.limit}`;
+  if (state.currentFilter) {
+    url += `&type=${state.currentFilter}`;
+  }
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      if (res.status === 404) {
+        renderHistoryTable([], { total_records: 0, total_pages: 0, page: 1 });
+      }
+      return;
+    }
+
+    const data = await res.json();
+    state.totalRecords = data.pagination.total_records;
+    state.totalPages = data.pagination.total_pages;
+
+    renderHistoryTable(data.items, data.pagination);
+    renderOverviewActivity(data.items);
+  } catch (err) {
+    console.error("Failed to fetch transaction history:", err);
+  }
+}
+
+function renderHistoryTable(items, pagination) {
+  elements.historyTableBody.innerHTML = "";
+
+  if (!items || items.length === 0) {
+    elements.historyEmptyState.style.display = "flex";
+  } else {
+    elements.historyEmptyState.style.display = "none";
+
+    items.forEach((item) => {
+      const row = document.createElement("tr");
+
+      // Type cell
+      const typeTd = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = `tx-badge ${item.type}`;
+      badge.textContent = item.type;
+      typeTd.appendChild(badge);
+      row.appendChild(typeTd);
+
+      // Amount cell
+      const amountTd = document.createElement("td");
+      amountTd.className = `tx-amount tx-${item.type}`;
+      amountTd.textContent = `${item.type === "credit" ? "+" : "-"}${formatINR(item.amount)}`;
+      row.appendChild(amountTd);
+
+      // Reference cell
+      const refTd = document.createElement("td");
+      const refSpan = document.createElement("span");
+      refSpan.className = "tx-ref-badge";
+      refSpan.textContent = item.reference_id;
+      refTd.appendChild(refSpan);
+      row.appendChild(refTd);
+
+      // Description cell
+      const descTd = document.createElement("td");
+      descTd.textContent = item.description;
+      row.appendChild(descTd);
+
+      // Timestamp cell
+      const timeTd = document.createElement("td");
+      timeTd.className = "tx-timestamp";
+      timeTd.textContent = formatDate(item.created_at);
+      row.appendChild(timeTd);
+
+      elements.historyTableBody.appendChild(row);
+    });
+  }
+
+  // Update pagination controls
+  elements.metricTotalRecords.textContent = pagination.total_records;
+  elements.paginationCountInfo.textContent = `Showing ${items.length} of ${pagination.total_records} transactions`;
+  elements.pageIndicator.textContent = `Page ${pagination.page} of ${Math.max(1, pagination.total_pages)}`;
+  elements.btnPrevPage.disabled = pagination.page <= 1;
+  elements.btnNextPage.disabled = pagination.page >= pagination.total_pages;
+}
+
+function renderOverviewActivity(items) {
+  elements.recentActivityTableBody.innerHTML = "";
+
+  if (!items || items.length === 0) {
+    elements.recentActivityEmpty.style.display = "flex";
+    elements.metricCreditsTotal.textContent = "₹0.00";
+    elements.metricDebitsTotal.textContent = "₹0.00";
+    renderActivityChart(0, 0);
+    return;
+  }
+
+  elements.recentActivityEmpty.style.display = "none";
+
+  // Calculate actual aggregates from current history
+  let totalCredits = 0;
+  let totalDebits = 0;
+
+  items.slice(0, 5).forEach((item) => {
+    const row = document.createElement("tr");
+
+    const typeTd = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = `tx-badge ${item.type}`;
+    badge.textContent = item.type;
+    typeTd.appendChild(badge);
+    row.appendChild(typeTd);
+
+    const amountTd = document.createElement("td");
+    amountTd.className = `tx-amount tx-${item.type}`;
+    amountTd.textContent = `${item.type === "credit" ? "+" : "-"}${formatINR(item.amount)}`;
+    row.appendChild(amountTd);
+
+    const descTd = document.createElement("td");
+    descTd.textContent = item.description;
+    row.appendChild(descTd);
+
+    const timeTd = document.createElement("td");
+    timeTd.className = "tx-timestamp";
+    timeTd.textContent = formatDate(item.created_at);
+    row.appendChild(timeTd);
+
+    elements.recentActivityTableBody.appendChild(row);
+  });
+
+  items.forEach((item) => {
+    const val = parseFloat(item.amount);
+    if (item.type === "credit") totalCredits += val;
+    if (item.type === "debit") totalDebits += val;
+  });
+
+  elements.metricCreditsTotal.textContent = formatINR(totalCredits);
+  elements.metricDebitsTotal.textContent = formatINR(totalDebits);
+
+  renderActivityChart(totalCredits, totalDebits);
+}
+
+function renderActivityChart(credits, debits) {
+  elements.chartContainer.innerHTML = "";
+
+  const total = credits + debits;
+  if (total === 0) {
+    const emptyNotice = document.createElement("div");
+    emptyNotice.className = "empty-state";
+    emptyNotice.textContent = "No transaction volume recorded yet for activity visualization.";
+    elements.chartContainer.appendChild(emptyNotice);
+    return;
+  }
+
+  const creditPct = Math.round((credits / total) * 100);
+  const debitPct = 100 - creditPct;
+
+  const barChart = document.createElement("div");
+  barChart.className = "bar-chart-honest";
+
+  // Credit Bar
+  const creditCol = document.createElement("div");
+  creditCol.className = "chart-bar-col";
+  const creditFill = document.createElement("div");
+  creditFill.className = "chart-bar-fill";
+  creditFill.style.backgroundColor = "var(--accent-green)";
+  creditFill.style.height = `${Math.max(8, creditPct)}%`;
+  const creditLabel = document.createElement("div");
+  creditLabel.className = "chart-bar-label";
+  creditLabel.textContent = `Credit (${creditPct}%)`;
+  creditCol.appendChild(creditFill);
+  creditCol.appendChild(creditLabel);
+
+  // Debit Bar
+  const debitCol = document.createElement("div");
+  debitCol.className = "chart-bar-col";
+  const debitFill = document.createElement("div");
+  debitFill.className = "chart-bar-fill";
+  debitFill.style.backgroundColor = "var(--accent-red)";
+  debitFill.style.height = `${Math.max(8, debitPct)}%`;
+  const debitLabel = document.createElement("div");
+  debitLabel.className = "chart-bar-label";
+  debitLabel.textContent = `Debit (${debitPct}%)`;
+  debitCol.appendChild(debitFill);
+  debitCol.appendChild(debitLabel);
+
+  barChart.appendChild(creditCol);
+  barChart.appendChild(debitCol);
+
+  // Legend
+  const legend = document.createElement("div");
+  legend.className = "chart-legend";
+  legend.innerHTML = `
+    <div class="legend-item"><span class="legend-color" style="background:var(--accent-green);"></span> Inflow: ${formatINR(credits)}</div>
+    <div class="legend-item"><span class="legend-color" style="background:var(--accent-red);"></span> Outflow: ${formatINR(debits)}</div>
+  `;
+
+  elements.chartContainer.appendChild(barChart);
+  elements.chartContainer.appendChild(legend);
+}
+
+// Action Handlers
+elements.formCreateAccount.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = elements.inputAccountHolderName.value.trim();
+  if (!name) {
+    showToast("Validation Error", "Please provide a valid account holder name.", "error");
+    return;
+  }
+
+  elements.btnSubmitCreateAccount.disabled = true;
+  elements.btnSubmitCreateAccount.innerHTML = '<span class="spinner"></span> Creating...';
+
+  try {
+    const res = await fetch("/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+
+    const data = await res.json();
+
+    if (res.status === 201) {
+      showToast("Account Created", `Created account for ${data.name}. Balance: ₹${data.balance}`, "success");
+      elements.inputAccountHolderName.value = "";
+      setActiveAccount(data.id, data.name);
+      switchTab("viewOverview");
+    } else {
+      const errMsg = data.error?.message || "Failed to create account.";
+      showToast("Error Creating Account", errMsg, "error");
+    }
+  } catch (err) {
+    showToast("Network Error", "Unable to reach the ledger server.", "error");
+  } finally {
+    elements.btnSubmitCreateAccount.disabled = false;
+    elements.btnSubmitCreateAccount.textContent = "Create Account";
+  }
+});
+
+elements.accountSelectDropdown.addEventListener("change", (e) => {
+  const selectedId = e.target.value;
+  if (!selectedId) return;
+  const found = state.recentAccounts.find((a) => a.id === selectedId);
+  if (found) {
+    setActiveAccount(found.id, found.name);
+    showToast("Account Switched", `Active account: ${found.name}`, "info");
+  }
+});
+
+elements.btnLoadManualAccount.addEventListener("click", async () => {
+  const inputId = elements.inputManualAccountId.value.trim();
+  if (!inputId) {
+    showToast("Input Required", "Please enter an account UUID.", "error");
+    return;
+  }
+
+  try {
+    const res = await fetch(`/accounts/${inputId}/balance`);
+    if (res.ok) {
+      const data = await res.json();
+      setActiveAccount(data.account_id, `Account (${data.account_id.substring(0, 8)}...)`);
+      elements.inputManualAccountId.value = "";
+      showToast("Account Loaded", `Loaded balance: ${formatINR(data.balance)}`, "success");
+      switchTab("viewOverview");
+    } else {
+      showToast("Account Not Found", "No account matches the provided UUID.", "error");
+    }
+  } catch (err) {
+    showToast("Network Error", "Could not verify account.", "error");
+  }
+});
+
+// Transaction Type Toggles
+elements.toggleCredit.addEventListener("click", () => {
+  elements.toggleCredit.classList.add("active", "credit");
+  elements.toggleDebit.classList.remove("active", "debit");
+  elements.inputTxType.value = "credit";
+  elements.btnSubmitTransaction.textContent = "Submit Credit Transaction";
+});
+
+elements.toggleDebit.addEventListener("click", () => {
+  elements.toggleDebit.classList.add("active", "debit");
+  elements.toggleCredit.classList.remove("active", "credit");
+  elements.inputTxType.value = "debit";
+  elements.btnSubmitTransaction.textContent = "Submit Debit Transaction";
+});
+
+// Auto Reference Generator Helper
+elements.btnGenerateRef.addEventListener("click", () => {
+  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const timestamp = Date.now().toString(36).toUpperCase();
+  elements.inputTxReference.value = `TX-${timestamp}-${randomSuffix}`;
+});
+
+// Submit Transaction
+elements.formTransaction.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  if (!state.activeAccountId) {
+    showToast("Account Required", "Please select or create an account first.", "error");
+    switchTab("viewAccounts");
+    return;
+  }
+
+  const type = elements.inputTxType.value;
+  const amountStr = elements.inputTxAmount.value.trim();
+  const description = elements.inputTxDescription.value.trim();
+  const reference_id = elements.inputTxReference.value.trim();
+
+  if (!amountStr || isNaN(parseFloat(amountStr)) || parseFloat(amountStr) <= 0) {
+    showToast("Validation Error", "Amount must be a positive number greater than 0.", "error");
+    return;
+  }
+
+  if (!description) {
+    showToast("Validation Error", "Description is required.", "error");
+    return;
+  }
+
+  if (!reference_id) {
+    showToast("Validation Error", "Reference ID is required.", "error");
+    return;
+  }
+
+  elements.btnSubmitTransaction.disabled = true;
+  elements.btnSubmitTransaction.innerHTML = '<span class="spinner"></span> Processing Transaction...';
+
+  try {
+    const res = await fetch(`/accounts/${state.activeAccountId}/transactions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type,
+        amount: amountStr,
+        description,
+        reference_id,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (res.status === 201) {
+      showToast(
+        "Transaction Approved",
+        `Successfully applied ${type}. New balance: ${formatINR(data.account_balance)}`,
+        "success"
+      );
+      elements.inputTxAmount.value = "";
+      elements.inputTxDescription.value = "";
+      elements.inputTxReference.value = "";
+
+      // Refresh balance & history
+      await fetchAccountData();
+    } else if (res.status === 409) {
+      const code = data.error?.code;
+      if (code === "INSUFFICIENT_BALANCE") {
+        showToast("Insufficient Balance (409)", "The account does not have sufficient funds for this debit. Balance was not changed.", "error");
+      } else if (code === "DUPLICATE_REFERENCE") {
+        showToast("Duplicate Reference (409)", `Reference ID "${reference_id}" was already processed for this account.`, "error");
+      } else {
+        showToast("Conflict (409)", data.error?.message || "Transaction conflict.", "error");
+      }
+    } else if (res.status === 422) {
+      const firstError = data.error?.details?.errors?.[0]?.message || "Validation failed on submitted fields.";
+      showToast("Validation Error (422)", firstError, "error");
+    } else {
+      showToast("Error", data.error?.message || "Transaction failed.", "error");
+    }
+  } catch (err) {
+    showToast("Network Error", "Could not complete transaction request.", "error");
+  } finally {
+    elements.btnSubmitTransaction.disabled = false;
+    elements.btnSubmitTransaction.textContent = type === "credit" ? "Submit Credit Transaction" : "Submit Debit Transaction";
+  }
+});
+
+// Filter Bar
+elements.filterAll.addEventListener("click", () => {
+  state.currentFilter = null;
+  state.currentPage = 1;
+  updateFilterPills(elements.filterAll);
+  fetchTransactionHistory();
+});
+
+elements.filterCredit.addEventListener("click", () => {
+  state.currentFilter = "credit";
+  state.currentPage = 1;
+  updateFilterPills(elements.filterCredit);
+  fetchTransactionHistory();
+});
+
+elements.filterDebit.addEventListener("click", () => {
+  state.currentFilter = "debit";
+  state.currentPage = 1;
+  updateFilterPills(elements.filterDebit);
+  fetchTransactionHistory();
+});
+
+function updateFilterPills(activeBtn) {
+  [elements.filterAll, elements.filterCredit, elements.filterDebit].forEach((b) => b.classList.remove("active"));
+  activeBtn.classList.add("active");
+}
+
+// Pagination Controls
+elements.btnPrevPage.addEventListener("click", () => {
+  if (state.currentPage > 1) {
+    state.currentPage--;
+    fetchTransactionHistory();
+  }
+});
+
+elements.btnNextPage.addEventListener("click", () => {
+  if (state.currentPage < state.totalPages) {
+    state.currentPage++;
+    fetchTransactionHistory();
+  }
+});
+
+elements.btnRefreshAll.addEventListener("click", () => {
+  checkHealth();
+  if (state.activeAccountId) {
+    fetchAccountData();
+    showToast("Refreshed", "Account balance and history reloaded.", "info");
+  }
+});
+
+// Setup Tab Navigation
+elements.navItems.forEach((item) => {
+  item.addEventListener("click", () => {
+    const viewId = item.dataset.view;
+    if (viewId) {
+      switchTab(viewId);
+    }
+  });
+});
+
+// Initial Bootstrap
+window.addEventListener("DOMContentLoaded", () => {
+  checkHealth();
+  renderAccountBadges();
+  if (state.activeAccountId) {
+    fetchAccountData();
+  } else {
+    // Prompt user to select/create
+    elements.metricBalance.textContent = "₹0.00";
+    elements.metricTotalRecords.textContent = "0";
+  }
+});
+
+</script>
 </body>
 </html>
