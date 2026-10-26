@@ -112,7 +112,15 @@ if STATIC_DIR.exists():
 @app.get("/api/", include_in_schema=False)
 @app.get("/api/index", include_in_schema=False)
 @app.get("/api/index.py", include_in_schema=False)
-def serve_dashboard():
+def serve_dashboard(request: Request):
+    if "debug" in request.query_params:
+        return JSONResponse(
+            content={
+                "scope_path": request.scope.get("path"),
+                "query_string": request.scope.get("query_string", b"").decode("utf-8", errors="ignore"),
+                "headers": dict(request.headers),
+            }
+        )
     candidates = [
         STATIC_DIR / "index.html",
         Path("static/index.html"),
