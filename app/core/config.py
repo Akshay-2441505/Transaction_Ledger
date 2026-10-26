@@ -1,4 +1,5 @@
 from typing import Optional
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +14,18 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
+
+    @field_validator("DATABASE_URL", "TEST_DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        # Normalize standard postgres:// or postgresql:// to postgresql+psycopg://
+        if v.startswith("postgres://"):
+            return "postgresql+psycopg://" + v[len("postgres://") :]
+        if v.startswith("postgresql://") and not v.startswith("postgresql+"):
+            return "postgresql+psycopg://" + v[len("postgresql://") :]
+        return v
 
     model_config = SettingsConfigDict(
         env_file=".env",
