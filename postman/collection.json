@@ -1,0 +1,184 @@
+{
+  "info": {
+    "name": "Transaction Ledger API",
+    "description": "Comprehensive Postman collection for the Transaction Ledger API assessment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "accountId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Create Account",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "if (jsonData.id) {",
+              "    pm.collectionVariables.set('accountId', jsonData.id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Akshay Kumar\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/accounts",
+          "host": ["{{baseUrl}}"],
+          "path": ["accounts"]
+        }
+      }
+    },
+    {
+      "name": "Credit 1000.00",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"credit\",\n  \"amount\": \"1000.00\",\n  \"description\": \"Initial account funding\",\n  \"reference_id\": \"PAY-001\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/transactions",
+          "host": ["{{baseUrl}}"],
+          "path": ["accounts", "{{accountId}}", "transactions"]
+        }
+      }
+    },
+    {
+      "name": "Debit 300.00",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"debit\",\n  \"amount\": \"300.00\",\n  \"description\": \"Office supplies\",\n  \"reference_id\": \"EXP-001\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/transactions",
+          "host": ["{{baseUrl}}"],
+          "path": ["accounts", "{{accountId}}", "transactions"]
+        }
+      }
+    },
+    {
+      "name": "Overdraft Attempt (Expect 409)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"debit\",\n  \"amount\": \"1500.00\",\n  \"description\": \"Attempt to overdraft\",\n  \"reference_id\": \"OVERDRAFT-001\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/transactions",
+          "host": ["{{baseUrl}}"],
+          "path": ["accounts", "{{accountId}}", "transactions"]
+        }
+      }
+    },
+    {
+      "name": "Duplicate Reference (Expect 409)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"credit\",\n  \"amount\": \"500.00\",\n  \"description\": \"Reused reference id\",\n  \"reference_id\": \"PAY-001\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/transactions",
+          "host": ["{{baseUrl}}"],
+          "path": ["accounts", "{{accountId}}", "transactions"]
+        }
+      }
+    },
+    {
+      "name": "Get Account Balance",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/balance",
+          "host": ["{{baseUrl}}"],
+          "path": ["accounts", "{{accountId}}", "balance"]
+        }
+      }
+    },
+    {
+      "name": "Get Transaction History",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/accounts/{{accountId}}/transactions?page=1&limit=20",
+          "host": ["{{baseUrl}}"],
+          "path": ["accounts", "{{accountId}}", "transactions"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "20"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
